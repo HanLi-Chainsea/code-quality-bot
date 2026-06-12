@@ -2,3 +2,7 @@
 samples/petclinic/
 *.log
 samples/review-sample/
+
+# deploy: real (filled) secret files — never commit
+deploy/.env
+deploy/pr_agent.gitlab.toml

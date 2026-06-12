@@ -26,7 +26,8 @@ Copy the `deploy/` folder to the Mac mini, then:
 ```
 cd deploy
 cp .env.example .env          # set MINIMAX_API_KEY + LITELLM_MASTER_KEY
-# edit pr_agent.gitlab.toml:
+cp pr_agent.gitlab.toml.example pr_agent.gitlab.toml && chmod 600 pr_agent.gitlab.toml   # real secrets; gitignored
+# then edit pr_agent.gitlab.toml:
 #   [openai] key      = same as LITELLM_MASTER_KEY
 #   [gitlab] url      = https://gitlab.com  (or your cloud GitLab)
 #   [gitlab] personal_access_token = a bot token (see Step 4)
@@ -90,14 +91,36 @@ To switch:
 1. In `deploy/config.yaml`, repoint the `reviewer` block to another backend (a ready-to-uncomment
    "SWAP OPTIONS" panel is in the file: Claude / OpenAI / Gemini / DeepSeek / local Ollama / local vLLM).
 2. Put that provider's key in `deploy/.env` (local models need none).
-3. `docker compose up -d litellm` (restarts only the gateway; PR-Agent keeps running).
+3. `docker compose up -d --force-recreate litellm` (put the provider key in `.env` first; PR-Agent keeps running).
 
 ### Go fully local (nothing leaves the Mac mini — solves the "diff goes to MiniMax" privacy concern)
 1. On the Mac mini host: `brew install ollama && ollama pull qwen2.5-coder:14b && ollama serve`.
 2. In `config.yaml`, use the LOCAL Ollama `reviewer` block (api_base `http://host.docker.internal:11434/v1`).
-3. `docker compose up -d litellm`. Now the diff → Mac mini → local model. Zero data leaves the box.
+3. `docker compose up -d --force-recreate litellm`. Now the diff → Mac mini → local model. Zero data leaves the box.
    (Trade-off: local model quality/speed depends on the Mac mini's RAM/GPU; try a few sizes.)
 
 ### Per-repo / per-team different models (optional)
 Register multiple aliases in `config.yaml` (e.g. `reviewer`, `reviewer-cheap`) and set PR-Agent's
 `model` per deployment, or override via the MR command `/review --config.model=openai/reviewer-cheap`.
+
+## ⚠️ Production hardening & known limitations (dual-model review, 2026-06)
+This package is a working starting point, not a hardened multi-tenant service. Before/while running for a real team:
+
+**Secrets & tokens**
+- `pr_agent.gitlab.toml` (filled) and `.env` are gitignored — keep them `chmod 600`, never commit. Only `*.example` are tracked.
+- GitLab token: prefer a **project access token** over a group token; role **Developer**, scope **api** (do NOT grant `write_repository`); set an **expiry** and a rotation reminder.
+
+**Webhook ingress (the one public surface)**
+- Always use an HTTPS tunnel (Cloudflare Tunnel / Tailscale Funnel are HTTPS) — **never a quick/temporary tunnel in prod**.
+- Put **Cloudflare Access / a reverse proxy** in front for rate-limit + source allowlist. PR-Agent answers `200` before validating the token and uses a static (replayable) secret — treat the endpoint as semi-exposed.
+- If you want MR comment commands (`/review`, `/ask`), also enable **Note events** on the webhook (Merge-request-events alone won't deliver them).
+
+**Cost control**
+- The `max_budget` in `config.yaml` is **best-effort** (in-memory, resets on restart; MiniMax isn't in LiteLLM's cost map). Set a **hard spend limit on the MiniMax side** + a billing alert as the real guard. For accurate tracking, point LiteLLM at a Postgres `database_url`.
+
+**Reliability**
+- PR-Agent returns `200` then processes in the background, so a crash/restart **drops that MR's review** (GitLab won't resend). For now: rely on the healthcheck + re-trigger by re-opening/`/review`. A durable queue is a future upgrade.
+- Images are pinned by digest. Re-pin (`docker compose pull` is disabled by digest) only after testing a new version in staging.
+
+**Lab vs prod**
+- `scripts/setup.sh`, `scripts/seed-gitlab.sh`, the root `docker-compose.yml` (with GitLab CE), and `runners/*` are **LAB ONLY** (throwaway GitLab CE, fixed admin token, shell-interpolated args). Never run them against production. Production = `deploy/` only.

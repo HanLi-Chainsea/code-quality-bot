@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# ╔════════════════════════════════════════════════════════════════════╗
+# ║ LAB ONLY — do NOT run in production.                                ║
+# ║ Spins up a throwaway GitLab CE with a FIXED admin token + force-    ║
+# ║ push. For real deploy use deploy/ + docs/deploy-macmini.md.         ║
+# ╚════════════════════════════════════════════════════════════════════╝
 # One-command bring-up of the code-quality-bot bake-off lab.
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -1,26 +1,51 @@
 # Production deploy: litellm->MiniMax + PR-Agent webhook server.
 # NO GitLab CE here — points at your REAL cloud GitLab.
+# Images pinned by digest (supply-chain). Re-pin after testing a new version.
 services:
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418befaa32e85dfb0186
     container_name: cqb-litellm
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
-      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # pass through whichever provider key 'reviewer' points at (blank if unused)
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     volumes:
       - ./config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 768m
+    security_opt: ["no-new-privileges:true"]
+    logging: { driver: "json-file", options: { max-size: "10m", max-file: "3" } }
     restart: unless-stopped
 
   pr-agent:
-    image: codiumai/pr-agent:latest
+    image: codiumai/pr-agent@sha256:a5741a479f21d20a9bbeca7847a720f92ac6f427e8dc0920fefa039ecafd5e6f
     container_name: cqb-pr-agent
     entrypoint: ["python", "-m", "pr_agent.servers.gitlab_webhook"]
     environment:
       PORT: "3000"
       PYTHONPATH: "/app"
     volumes:
+      # real secrets file — created from pr_agent.gitlab.toml.example, gitignored, chmod 600
       - ./pr_agent.gitlab.toml:/app/pr_agent/settings/.secrets.toml:ro
+    depends_on:
+      litellm: { condition: service_healthy }
     ports:
-      - "127.0.0.1:3033:3000"   # only localhost; the tunnel exposes it publicly
+      - "127.0.0.1:3033:3000"   # localhost only; a tunnel (with TLS) exposes it
+    mem_limit: 1g
+    security_opt: ["no-new-privileges:true"]
+    logging: { driver: "json-file", options: { max-size: "10m", max-file: "3" } }
     restart: unless-stopped
+
+networks:
+  default:
+    name: cqb-net

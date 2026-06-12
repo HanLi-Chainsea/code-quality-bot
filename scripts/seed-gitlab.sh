@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# ╔════════════════════════════════════════════════════════════════════╗
+# ║ LAB ONLY — do NOT run in production.                                ║
+# ║ Spins up a throwaway GitLab CE with a FIXED admin token + force-    ║
+# ║ push. For real deploy use deploy/ + docs/deploy-macmini.md.         ║
+# ╚════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 # create a known root API token (retries: rails may still be warming up)
 for i in $(seq 1 10); do

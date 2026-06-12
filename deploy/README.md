@@ -3,3 +3,4 @@ The 2 services that run on the Mac mini. See ../docs/deploy-macmini.md for the f
 - litellm → MiniMax (LLM gateway, budget-capped)
 - pr-agent (GitLab webhook server, posts reviews into MRs)
 GitLab CE is NOT here — you use your real cloud GitLab.
+Secrets: cp pr_agent.gitlab.toml.example pr_agent.gitlab.toml (chmod 600, gitignored). See ../docs/deploy-macmini.md "Production hardening".
