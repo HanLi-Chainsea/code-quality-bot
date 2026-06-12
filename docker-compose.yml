@@ -11,3 +11,20 @@ services:
     ports:
       - "4000:4000"
     restart: unless-stopped
+  gitlab-ce:
+    image: gitlab/gitlab-ce:latest
+    container_name: cqb-gitlab
+    hostname: gitlab.local
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8929'
+        gitlab_rails['initial_root_password'] = ENV['GITLAB_ROOT_PASSWORD']
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+        puma['worker_processes'] = 2
+        sidekiq['concurrency'] = 5
+        prometheus_monitoring['enable'] = false
+    ports:
+      - "8929:8929"
+      - "2224:22"
+    shm_size: "256m"
+    restart: unless-stopped

@@ -43,3 +43,9 @@ FINDING for REPORT: Qodo Cover OSS = NOT usable out-of-box for self-hosted MiniM
 - Diffblue: ⚠️ pulls free but `dcover create` requires a PAID license. Strong Java story but commercial gate.
 - Qodo Cover OSS: ❌ unmaintained + can't point at self-hosted LLM proxy out-of-box.
 => Free test-gen for self-hosted Java/MiniMax is the real GAP. Review is solved (PR-Agent).
+
+## 2026-06-03 — Task 7: GitLab CE (Track 2)
+GitLab CE up on :8929 (~2 min boot, container cqb-gitlab). Gotchas:
+- PAT via gitlab-rails runner REQUIRES expires_at (newer GitLab): `expires_at: Date.today + 365`.
+- Shallow clone (--depth 1) is rejected on push ("shallow update not allowed") → `git fetch --unshallow` first.
+Seeded root/petclinic with full history + known token 'cqb-root-token'.
