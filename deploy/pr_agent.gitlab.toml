@@ -1,6 +1,6 @@
 # Fill in your REAL cloud GitLab + a bot token + a webhook secret.
 [config]
-model = "openai/minimax"
+model = "openai/reviewer"   # stable alias; the real model lives in config.yaml
 fallback_models = []
 custom_model_max_tokens = 32000
 git_provider = "gitlab"

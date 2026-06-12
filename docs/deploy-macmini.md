@@ -81,3 +81,23 @@ Devs can also type `/review`, `/improve`, `/ask "..."` in MR comments.
 Register a self-hosted GitLab runner on the Mac mini and add a `.gitlab-ci.yml` job that runs PR-Agent
 on `merge_request` pipelines. Runner polls GitLab (outbound only) → no inbound/tunnel. Trade-off: needs a
 CI-config in each repo (less "zero-touch" than a group webhook). Use this if you can't/won't run a tunnel.
+
+## Swapping the model later (the built-in "口")
+LiteLLM is the swap seam. **PR-Agent always calls the stable alias `reviewer`** (`pr_agent.gitlab.toml`,
+`model = "openai/reviewer"`) — you never touch PR-Agent when changing models.
+
+To switch:
+1. In `deploy/config.yaml`, repoint the `reviewer` block to another backend (a ready-to-uncomment
+   "SWAP OPTIONS" panel is in the file: Claude / OpenAI / Gemini / DeepSeek / local Ollama / local vLLM).
+2. Put that provider's key in `deploy/.env` (local models need none).
+3. `docker compose up -d litellm` (restarts only the gateway; PR-Agent keeps running).
+
+### Go fully local (nothing leaves the Mac mini — solves the "diff goes to MiniMax" privacy concern)
+1. On the Mac mini host: `brew install ollama && ollama pull qwen2.5-coder:14b && ollama serve`.
+2. In `config.yaml`, use the LOCAL Ollama `reviewer` block (api_base `http://host.docker.internal:11434/v1`).
+3. `docker compose up -d litellm`. Now the diff → Mac mini → local model. Zero data leaves the box.
+   (Trade-off: local model quality/speed depends on the Mac mini's RAM/GPU; try a few sizes.)
+
+### Per-repo / per-team different models (optional)
+Register multiple aliases in `config.yaml` (e.g. `reviewer`, `reviewer-cheap`) and set PR-Agent's
+`model` per deployment, or override via the MR command `/review --config.model=openai/reviewer-cheap`.

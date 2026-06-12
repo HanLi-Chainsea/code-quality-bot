@@ -1,12 +1,42 @@
+# ============================================================
+#  MODEL SWAP PANEL  —  this is the only place you change the model.
+#  PR-Agent always calls the alias "reviewer" (see pr_agent.gitlab.toml,
+#  model = "openai/reviewer"). To switch models, repoint the `reviewer`
+#  alias below to a different backend, then: docker compose up -d litellm
+#  (PR-Agent config NEVER changes.)
+# ============================================================
 model_list:
-  - model_name: minimax
+  # ---- ACTIVE: the alias PR-Agent uses. Repoint this one block to swap. ----
+  - model_name: reviewer
     litellm_params:
-      model: openai/MiniMax-Text-01
+      model: openai/MiniMax-Text-01          # MiniMax (current)
       api_base: https://api.minimax.io/v1
       api_key: os.environ/MINIMAX_API_KEY
+
+  # ---- SWAP OPTIONS: copy ONE of these over the block above to switch. ----
+  # Cloud — Anthropic Claude (fill the current model id your account has):
+  # - model_name: reviewer
+  #   litellm_params: { model: anthropic/<claude-model-id>, api_key: os.environ/ANTHROPIC_API_KEY }
+  # Cloud — OpenAI:
+  # - model_name: reviewer
+  #   litellm_params: { model: <openai-model-id>, api_key: os.environ/OPENAI_API_KEY }
+  # Cloud — Google Gemini:
+  # - model_name: reviewer
+  #   litellm_params: { model: gemini/<gemini-model-id>, api_key: os.environ/GEMINI_API_KEY }
+  # Cloud — DeepSeek (cheap):
+  # - model_name: reviewer
+  #   litellm_params: { model: deepseek/deepseek-chat, api_key: os.environ/DEEPSEEK_API_KEY }
+  # LOCAL — Ollama on the Mac mini (nothing leaves the machine; for the privacy case):
+  #   (run on the host: `ollama pull qwen2.5-coder:14b && ollama serve`)
+  # - model_name: reviewer
+  #   litellm_params: { model: openai/qwen2.5-coder:14b, api_base: http://host.docker.internal:11434/v1, api_key: "ollama" }
+  # LOCAL — vLLM on the Mac mini (OpenAI-compatible):
+  # - model_name: reviewer
+  #   litellm_params: { model: openai/<served-model>, api_base: http://host.docker.internal:8000/v1, api_key: "vllm" }
+
 litellm_settings:
   drop_params: true
-  max_budget: 100      # USD/month hard cap — protects against runaway cost
+  max_budget: 100        # USD/month hard cap (ignored for local models = $0)
   budget_duration: 30d
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
