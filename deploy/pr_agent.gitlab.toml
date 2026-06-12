@@ -1,0 +1,16 @@
+# Fill in your REAL cloud GitLab + a bot token + a webhook secret.
+[config]
+model = "openai/minimax"
+fallback_models = []
+custom_model_max_tokens = 32000
+git_provider = "gitlab"
+publish_output = true
+
+[openai]
+api_base = "http://cqb-litellm:4000"
+key = "sk-cqb-________"                 # MUST equal LITELLM_MASTER_KEY in .env
+
+[gitlab]
+url = "https://gitlab.com"              # or your cloud self-managed GitLab base URL
+personal_access_token = "glpat-________"  # a bot/group token, scope: api
+shared_secret = "________"              # random; must match the GitLab webhook 'Secret token'

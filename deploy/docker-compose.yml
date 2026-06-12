@@ -1,0 +1,26 @@
+# Production deploy: litellm->MiniMax + PR-Agent webhook server.
+# NO GitLab CE here — points at your REAL cloud GitLab.
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: cqb-litellm
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+
+  pr-agent:
+    image: codiumai/pr-agent:latest
+    container_name: cqb-pr-agent
+    entrypoint: ["python", "-m", "pr_agent.servers.gitlab_webhook"]
+    environment:
+      PORT: "3000"
+      PYTHONPATH: "/app"
+    volumes:
+      - ./pr_agent.gitlab.toml:/app/pr_agent/settings/.secrets.toml:ro
+    ports:
+      - "127.0.0.1:3033:3000"   # only localhost; the tunnel exposes it publicly
+    restart: unless-stopped

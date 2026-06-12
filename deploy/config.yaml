@@ -1,0 +1,12 @@
+model_list:
+  - model_name: minimax
+    litellm_params:
+      model: openai/MiniMax-Text-01
+      api_base: https://api.minimax.io/v1
+      api_key: os.environ/MINIMAX_API_KEY
+litellm_settings:
+  drop_params: true
+  max_budget: 100      # USD/month hard cap — protects against runaway cost
+  budget_duration: 30d
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
