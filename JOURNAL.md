@@ -18,3 +18,7 @@ Config gotchas discovered (→ docs/pr-agent.md):
 7. Model name must match the LiteLLM proxy model: use `openai/minimax` (proxy model_name=minimax).
 8. publish_output=true → local provider writes review to <repo>/review.md.
 Verdict so far: PR-Agent review quality on MiniMax = good (caught real issues). Token use small (~1.5k diff).
+
+## 2026-06-03 — Task 4: samples
+Cloned spring-petclinic (Java/Maven). Compiled OK (target/classes present) → ready for Diffblue/Qodo Java test-gen.
+ChainThings(TS) used in place for TS targets. (samples/* gitignored.)
