@@ -18,3 +18,7 @@ Review is solved cheaply (PR-Agent + MiniMax). **The real gap for your team = fr
 ## Caveats / scope
 - Track 2 (real GitLab MR auto-review) was deferred (user choice B) — PR-Agent's *in-MR* experience not yet tested, only local CLI.
 - All tool gotchas + exact commands captured in JOURNAL.md and docs/.
+
+## Track 2 update (real GitLab MR)
+- **PR-Agent reviews a real GitLab MR and posts in-MR** (PR Reviewer Guide + effort label + line-linked focus areas) on a self-managed GitLab CE. Confirms the "turnkey in-MR auto-review for colleagues" experience.
+- Webhook *auto-trigger* hit a GitLab CE local-URL validation quirk (works in prod with a real hostname); the review+post itself works via the CLI against the MR URL. Net: **PR-Agent is adoptable for self-hosted GitLab review.**
