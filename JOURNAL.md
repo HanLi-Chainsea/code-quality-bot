@@ -29,3 +29,17 @@ exits immediately demanding a paid license key (diffblue.com/pricing). The free 
 IntelliJ plugin only — NOT the automatable CLI. => Diffblue autonomous Java test-gen is NOT free-to-self-host;
 adoption requires buying a commercial license. (Quality not assessable in this bake-off without a license.)
 FINDING for REPORT: Diffblue = strong Java/regression story but commercial-license gate; evaluate via trial.
+
+## 2026-06-03 — Task 5: Qodo Cover (cover-agent) — BLOCKED (unmaintained + LLM base-url)
+- No prebuilt image; install via `pip install git+https://github.com/qodo-ai/qodo-cover.git` (needs git in image).
+- Repo is NO LONGER MAINTAINED (README: "fork it if you wish to continue").
+- cover-agent runs but its LLM call gets [Errno 111] Connection refused even though the SAME LiteLLM SDK
+  works with OPENAI_API_BASE in a bare probe (returns "Pong!"). cover-agent ignores OPENAI_API_BASE/OPENAI_BASE_URL
+  and won't target a self-hosted OpenAI-compatible proxy (MiniMax via LiteLLM) without code changes.
+FINDING for REPORT: Qodo Cover OSS = NOT usable out-of-box for self-hosted MiniMax; unmaintained.
+
+## Track-1 summary (bake-off)
+- PR-Agent: ✅ free, self-host, works with MiniMax via LiteLLM, good review (caught real bugs). WINNER for review.
+- Diffblue: ⚠️ pulls free but `dcover create` requires a PAID license. Strong Java story but commercial gate.
+- Qodo Cover OSS: ❌ unmaintained + can't point at self-hosted LLM proxy out-of-box.
+=> Free test-gen for self-hosted Java/MiniMax is the real GAP. Review is solved (PR-Agent).
