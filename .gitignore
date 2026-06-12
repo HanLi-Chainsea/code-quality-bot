@@ -1,3 +1,4 @@
 .env
 samples/petclinic/
 *.log
+samples/review-sample/
