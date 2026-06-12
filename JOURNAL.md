@@ -22,3 +22,10 @@ Verdict so far: PR-Agent review quality on MiniMax = good (caught real issues). 
 ## 2026-06-03 — Task 4: samples
 Cloned spring-petclinic (Java/Maven). Compiled OK (target/classes present) → ready for Diffblue/Qodo Java test-gen.
 ChainThings(TS) used in place for TS targets. (samples/* gitignored.)
+
+## 2026-06-03 — Task 6: Diffblue — BLOCKED (license)
+diffblue/cover-cli:latest pulls fine (803MB, bundles JDK17, dcover 2026.04.01). BUT `dcover create`
+exits immediately demanding a paid license key (diffblue.com/pricing). The free Community Edition is an
+IntelliJ plugin only — NOT the automatable CLI. => Diffblue autonomous Java test-gen is NOT free-to-self-host;
+adoption requires buying a commercial license. (Quality not assessable in this bake-off without a license.)
+FINDING for REPORT: Diffblue = strong Java/regression story but commercial-license gate; evaluate via trial.
