@@ -1,0 +1,10 @@
+[config]
+model = "openai/minimax"
+fallback_models = []
+git_provider = "local"
+custom_model_max_tokens = 32000
+publish_output = true
+
+[openai]
+api_base = "http://cqb-litellm:4000"
+key = "sk-cqb-localdev"

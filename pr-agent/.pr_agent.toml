@@ -1,0 +1,9 @@
+[config]
+model = "openai/MiniMax-Text-01"
+fallback_models = []
+git_provider = "gitlab"
+publish_output = false
+
+[openai]
+api_base = "http://cqb-litellm:4000"
+key = "sk-cqb-localdev"
