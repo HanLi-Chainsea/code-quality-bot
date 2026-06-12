@@ -49,3 +49,13 @@ GitLab CE up on :8929 (~2 min boot, container cqb-gitlab). Gotchas:
 - PAT via gitlab-rails runner REQUIRES expires_at (newer GitLab): `expires_at: Date.today + 365`.
 - Shallow clone (--depth 1) is rejected on push ("shallow update not allowed") → `git fetch --unshallow` first.
 Seeded root/petclinic with full history + known token 'cqb-root-token'.
+
+## 2026-06-03 — Task 8: PR-Agent on real GitLab MR (Track 2) — WORKS
+- PR-Agent CLI with git_provider=gitlab + --pr_url=<MR url> reviewed real MR #1 on root/petclinic and POSTED
+  the review INTO the MR (note by root: PR Reviewer Guide, effort 2/5, focus areas with line-links to
+  DiscountService.java#L3-4) + set MR label "Review effort 2/5". Saved: eval/out/pr-agent-gitlab-mr-review.md.
+- Webhook AUTO-trigger gotcha: GitLab CE rejects local-network webhook URLs ("Invalid url given") even with
+  allow_local_requests_from_web_hooks_and_services=true (CE local-address validation quirk). The pr-agent
+  webhook server itself runs fine (uvicorn :3000, GET / =200). In production (real hostname/DNS) the webhook
+  works; for the lab the CLI-against-MR-URL proves the review+post. Auto-trigger = a deployment detail.
+FINDING: PR-Agent in-MR review on self-managed GitLab = WORKS and is good. Recommend deploy via real hostname.

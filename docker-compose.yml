@@ -28,3 +28,15 @@ services:
       - "2224:22"
     shm_size: "256m"
     restart: unless-stopped
+  pr-agent:
+    image: codiumai/pr-agent:latest
+    container_name: cqb-pr-agent
+    entrypoint: ["python", "-m", "pr_agent.servers.gitlab_webhook"]
+    environment:
+      PORT: "3000"
+      PYTHONPATH: "/app"
+    volumes:
+      - ./pr-agent/.pr_agent.gitlab.toml:/app/pr_agent/settings/.secrets.toml:ro
+    ports:
+      - "3033:3000"
+    restart: unless-stopped
