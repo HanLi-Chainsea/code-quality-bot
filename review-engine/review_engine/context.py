@@ -47,4 +47,8 @@ def build_bundle(repo: str, base: str, data_dir: str, token_budget: int = 24_000
     while total() > token_budget and keys:
         b.related.pop(keys.pop())
     b.est_tokens = total()
+    if b.est_tokens > token_budget:
+        import sys
+        print(f"warning: context {b.est_tokens} tok exceeds budget {token_budget} "
+              f"(changed files alone); review may exceed the model window", file=sys.stderr)
     return b

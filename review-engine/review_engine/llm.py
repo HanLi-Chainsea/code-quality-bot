@@ -1,4 +1,4 @@
-import os, json, urllib.request
+import os, re, json, urllib.request
 from dataclasses import dataclass
 
 @dataclass
@@ -16,7 +16,9 @@ class Client:
         )
 
     def complete(self, system_and_user: str, max_tokens: int = 2000) -> str:
-        """Single-shot completion; returns clean `content` (reasoning_split keeps <think> out)."""
+        """Single-shot completion. Returns clean `content`. Our LiteLLM `reviewer` alias
+        separates reasoning server-side (reasoning_split); we ALSO strip any inline
+        <think>...</think> here so a non-LiteLLM backend can't leak reasoning into parsing."""
         body = json.dumps({
             "model": self.model,
             "messages": [{"role": "user", "content": system_and_user}],
@@ -27,4 +29,5 @@ class Client:
                                 "Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=120) as r:
             d = json.load(r)
-        return d["choices"][0]["message"].get("content") or ""
+        content = d["choices"][0]["message"].get("content") or ""
+        return re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()

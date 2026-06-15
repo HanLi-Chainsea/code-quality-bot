@@ -52,3 +52,11 @@ def test_review_default_severity_gate_drops_minor(fixture_repo, fixture_graph_di
     )
     findings = review.run(b, str(fixture_graph_dir), llm=fake, min_severity="major")
     assert findings == []                      # minor gated out before verify
+    assert fake.calls == 1
+
+def test_premise_source_pulls_real_source(fixture_repo, fixture_graph_dir):
+    from review_engine.models import Finding
+    f = Finding(severity="major", file=str(fixture_repo / "util.py"), line=1,
+                title="t", rationale="r", premise="p")
+    src = review._premise_source(f, str(fixture_graph_dir))
+    assert "def add" in src

@@ -13,6 +13,10 @@ def update(repo: str, data_dir: str) -> None:
                    check=True, capture_output=True, text=True)
 
 def detect_changes(repo: str, base: str, data_dir: str) -> List[ChangedFunction]:
+    """Return changed functions for `repo` between `base` and HEAD.
+    Note: CRG `detect-changes` has no --data-dir flag; it resolves the graph via CRG's
+    repo registry (populated when you ran `build --data-dir`). `data_dir` is kept for API
+    symmetry with build()/blast_radius() and to make the caller's intent explicit."""
     out = subprocess.run([CRG, "detect-changes", "--repo", repo, "--base", base],
                          check=True, capture_output=True, text=True).stdout
     data = json.loads(out)

@@ -7,11 +7,18 @@ from .llm import Client
 _SEV_ORDER = {"minor": 0, "major": 1, "blocker": 2}
 
 def _parse_json(text: str) -> dict:
-    """Tolerate models that wrap JSON in prose/fences."""
+    """Tolerate models that wrap JSON in prose/fences; never raise on bad output."""
     m = re.search(r"\{.*\}", text, re.S)
-    return json.loads(m.group(0)) if m else {}
+    if not m:
+        return {}
+    try:
+        return json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return {}
 
 def _read(path: str) -> str:
+    if not path:
+        return ""
     try:
         return pathlib.Path(path).read_text(errors="replace")
     except OSError:
@@ -49,6 +56,9 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     candidates = [Finding(**{k: f.get(k) for k in
                   ("severity", "file", "line", "title", "rationale", "premise")})
                   for f in found]
+
+    # drop malformed candidates (LLM may omit keys -> None) before we dereference them
+    candidates = [c for c in candidates if c.severity and c.file and c.title]
 
     # severity gate (drop below threshold before paying for verify)
     floor = _SEV_ORDER.get(min_severity, 1)

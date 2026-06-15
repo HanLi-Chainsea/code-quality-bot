@@ -1,5 +1,5 @@
-import argparse, json, sys, pathlib
-from . import graph, context, review, prompt
+import argparse, sys, pathlib
+from . import graph, context, review
 from .llm import Client
 
 def _diff_only_findings(repo: str, base: str, llm=None):
