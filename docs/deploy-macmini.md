@@ -26,6 +26,7 @@ Copy the `deploy/` folder to the Mac mini, then:
 ```
 cd deploy
 cp .env.example .env          # set MINIMAX_API_KEY + LITELLM_MASTER_KEY
+cp config.yaml.example config.yaml   # pick your model in the `reviewer` block; gitignored (local model choice)
 cp pr_agent.gitlab.toml.example pr_agent.gitlab.toml && chmod 600 pr_agent.gitlab.toml   # real secrets; gitignored
 # then edit pr_agent.gitlab.toml:
 #   [openai] key      = same as LITELLM_MASTER_KEY

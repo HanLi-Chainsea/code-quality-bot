@@ -28,7 +28,7 @@ Users in the MR can also type `/review`, `/improve`, `/ask "..."` as comments.
 | **[deploy/](deploy/)** | **What's running in production.** Two containers + config. | **PROD** |
 | `deploy/.env` | `LITELLM_MASTER_KEY` + provider API key (`MINIMAX_API_KEY` etc.) | secret, chmod 600, gitignored |
 | `deploy/pr_agent.gitlab.toml` | GitLab base URL + bot token + webhook `shared_secret` + LiteLLM key | secret, chmod 600, gitignored |
-| `deploy/config.yaml` | LiteLLM routing — **swap the model here**, panel of options in-file | not secret |
+| `deploy/config.yaml` | LiteLLM routing — **swap the model here**, panel of options in-file | local, gitignored (copy from `config.yaml.example`; model choice stays out of VC) |
 | `deploy/docker-compose.yml` | Container pinning (by digest), resource limits | not secret |
 | [docs/deploy-macmini.md](docs/deploy-macmini.md) | Full step-by-step first-time setup | — |
 | [docs/litellm-minimax.md](docs/litellm-minimax.md), [docs/pr-agent.md](docs/pr-agent.md) | Component-specific notes | — |
@@ -41,6 +41,7 @@ The full guide is [docs/deploy-macmini.md](docs/deploy-macmini.md). Short versio
 
 1. Install Docker Desktop, start it.
 2. `cp deploy/.env.example deploy/.env` → fill `MINIMAX_API_KEY` + `LITELLM_MASTER_KEY` (any random `sk-cqb-...`).
+   Then `cp deploy/config.yaml.example deploy/config.yaml` → pick your model in the `reviewer` block (gitignored; model choice stays local).
 3. `cp deploy/pr_agent.gitlab.toml.example deploy/pr_agent.gitlab.toml` → fill:
    - `[openai] key` = same as `LITELLM_MASTER_KEY`
    - `[gitlab] personal_access_token` = a Project/Group/Personal Access Token, scope `api`

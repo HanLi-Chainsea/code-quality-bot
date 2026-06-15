@@ -27,7 +27,7 @@ PR-Agent 會自動把 `describe` / `review` / `improve` 三種產出貼進 MR。
 | **[deploy/](deploy/)** | **正式環境跑的東西**：兩個容器 + 設定檔 | **PROD** |
 | `deploy/.env` | `LITELLM_MASTER_KEY` + 供應商 API key（`MINIMAX_API_KEY` 等） | 機密，chmod 600，gitignored |
 | `deploy/pr_agent.gitlab.toml` | GitLab base URL + bot token + webhook `shared_secret` + LiteLLM key | 機密，chmod 600，gitignored |
-| `deploy/config.yaml` | LiteLLM 路由 — **換模型改這裡**，檔案內有「SWAP OPTIONS」面板列各家寫法 | 非機密 |
+| `deploy/config.yaml` | LiteLLM 路由 — **換模型改這裡**，內有「SWAP OPTIONS」面板列各家寫法 | 本機，gitignored（從 `config.yaml.example` 複製，模型選擇不進 VC） |
 | `deploy/docker-compose.yml` | 容器 image digest pin、資源上限 | 非機密 |
 | [docs/deploy-macmini.md](docs/deploy-macmini.md) | 首次部署完整步驟（含 Cloudflare Tunnel） | — |
 | [docs/litellm-minimax.md](docs/litellm-minimax.md)、[docs/pr-agent.md](docs/pr-agent.md) | 元件層細節筆記 | — |
@@ -40,6 +40,7 @@ PR-Agent 會自動把 `describe` / `review` / `improve` 三種產出貼進 MR。
 
 1. 安裝 Docker Desktop 並啟動。
 2. `cp deploy/.env.example deploy/.env` → 填 `MINIMAX_API_KEY` 與 `LITELLM_MASTER_KEY`（任意 `sk-cqb-...` 隨機字串都可以）。
+   接著 `cp deploy/config.yaml.example deploy/config.yaml` → 在 `reviewer` 區塊選你要的模型（此檔 gitignored，模型選擇留本機）。
 3. `cp deploy/pr_agent.gitlab.toml.example deploy/pr_agent.gitlab.toml` → 填：
    - `[openai] key` = 同 `LITELLM_MASTER_KEY`
    - `[gitlab] personal_access_token` = Project / Group / Personal Access Token，scope 選 `api`
