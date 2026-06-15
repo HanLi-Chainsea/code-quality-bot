@@ -6,3 +6,6 @@ samples/review-sample/
 # deploy: real (filled) secret files — never commit
 deploy/.env
 deploy/pr_agent.gitlab.toml
+
+# pr-agent: LAB-only toml may get real secrets pasted in by mistake — keep it out
+pr-agent/.pr_agent.gitlab.toml
