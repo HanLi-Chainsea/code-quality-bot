@@ -49,10 +49,10 @@ The full guide is [docs/deploy-macmini.md](docs/deploy-macmini.md). Short versio
 4. `chmod 600 deploy/.env deploy/pr_agent.gitlab.toml`
 5. `cd deploy && docker compose up -d`
 6. Expose `:3033` via a Cloudflare Tunnel (preferred: named tunnel + your own domain).
-7. In each GitLab project → Settings → Webhooks → add:
+7. Set up the GitLab webhook (prefer **Group level** — one hook covers all repos) → full steps in [docs/gitlab-webhook-setup.md](docs/gitlab-webhook-setup.md):
    - URL: `https://<tunnel>/webhook`
    - Secret token: same as `shared_secret`
-   - Triggers: only **Merge request events**
+   - Triggers: **Merge request events + Comments** (Comments is what lets `/review`, `/improve`, `/ask` work in MR comments)
    - SSL verification: ON
 8. Open a test MR — PR-Agent posts within ~30s.
 

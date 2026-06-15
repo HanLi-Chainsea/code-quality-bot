@@ -48,10 +48,10 @@ PR-Agent 會自動把 `describe` / `review` / `improve` 三種產出貼進 MR。
 4. `chmod 600 deploy/.env deploy/pr_agent.gitlab.toml`
 5. `cd deploy && docker compose up -d`
 6. 把 `:3033` 用 Cloudflare Tunnel 對外（正式用建議：named tunnel + 自己的網域）。
-7. 每個 GitLab project → Settings → Webhooks → 新增：
+7. 設定 GitLab webhook（建議掛 **Group 層**一次覆蓋所有 repo）→ 完整步驟見 [docs/gitlab-webhook-setup.md](docs/gitlab-webhook-setup.md)：
    - URL：`https://<tunnel>/webhook`
    - Secret token：同 `shared_secret`
-   - Trigger：**只勾** Merge request events
+   - Trigger：**勾 Merge request events ＋ Comments**（Comments 才能在留言區用 `/review`、`/improve`、`/ask`）
    - SSL verification：開
 8. 開一個測試 MR → ~30 秒內 PR-Agent 會貼 review。
 
