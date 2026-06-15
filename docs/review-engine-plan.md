@@ -99,10 +99,7 @@ code-quality-bot/
 ### Phase 2 — 接進 GitLab MR 流程
 webhook → 引擎 → 貼回 MR。此時決定：**沿用 PR-Agent 當交付層**（只換它的 context 來源），還是**自寫薄 service 取代**。Phase 1 的整合經驗會給答案。
 
-### Phase 3 — han-agents 記憶 / 人工覆核層
-疊上 han-agents 的**語義記憶**（記住這個 team 在意什麼、哪種發現被採納/被嫌吵 → 噪聲隨時間下降）與 **human review queue**（人工覆核迴路）。這是 code-review-graph 沒有、而 han-agents 獨有的價值。
-
-### Phase 4 — Jira 整合（之後說不定會用到）
+### Phase 3 — Jira 整合（之後說不定會用到）
 兩條路，依需求取：
 - **快速版**：開 PR-Agent/Qodo Merge **內建的 Jira ticket 合規分析**（[Qodo Jira compliance](https://www.qodo.ai/blog/qodo-merge-jira-ensuring-code-quality-through-ticket-compliance/)）—— 靠 branch 名 `ISSUE-123-...` 或 MR 連結認 ticket，自動抓 acceptance criteria，給 Fully/Partially/Not compliant 標籤。多半只是設定 + Jira app 授權。
 - **引擎深度版**：把 ticket 的驗收標準**餵進 blast-radius context**，讓 review 同時做「程式碼層」+「需求 conformance」判斷；可選做 PR→ticket（把確認的發現開成 Jira issue）。
@@ -117,7 +114,7 @@ webhook → 引擎 → 貼回 MR。此時決定：**沿用 PR-Agent 當交付層
 - **code-review-graph 路徑/儲存**：文件沒寫怎麼指定外部 repo 路徑/圖位置 → 用 `cd` 進 cloned repo 跑來規避；Phase 1 要實測確認。
 - **每個 MR 即時建圖的延遲**：大 repo 首次 `build` 慢 → 靠 `update` 增量 + 圖持久化在 `var/`。
 - **M2.1 在 200k context 的成本/延遲** → context bundle 實際只用 ~24k；MiniMax 後台設 hard cap。
-- **語言覆蓋**：code-review-graph 30+ 語言、han-agents 8 語言 —— 以待審 repo 的實際語言為準（Phase 1 樣本決定）。
+- **語言覆蓋**：code-review-graph 支援 30+ 語言 —— 仍以待審 repo 的實際語言為準（Phase 1 樣本決定，先確認該語言的 caller/callee 解析品質）。
 
 ## 10. 參考
 - code-review-graph：[repo](https://github.com/tirth8205/code-review-graph) · [CLI docs](https://deepwiki.com/tirth8205/code-review-graph/4.1-cli-commands)
