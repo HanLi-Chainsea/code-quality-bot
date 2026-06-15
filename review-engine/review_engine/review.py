@@ -1,0 +1,106 @@
+import json, re, pathlib
+from typing import List, Optional
+from .models import Finding, Bundle
+from . import prompt, graph
+from .llm import Client
+
+_SEV_ORDER = {"minor": 0, "major": 1, "blocker": 2}
+
+# Reasoning models spend completion budget on thinking before the JSON answer; keep headroom.
+FIND_MAX_TOKENS = 8000
+VERIFY_MAX_TOKENS = 8000
+# Cap the source fed to the verifier so a huge file + all callers/callees can't blow the
+# completion budget (which truncates the verdict and silently loses the finding).
+VERIFY_SOURCE_MAX_CHARS = 12000
+
+def _parse_json(text: str) -> dict:
+    """Tolerate models that wrap JSON in prose/fences; never raise on bad output."""
+    m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        return {}
+    try:
+        return json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return {}
+
+def _read(path: str) -> str:
+    if not path:
+        return ""
+    try:
+        return pathlib.Path(path).read_text(errors="replace")
+    except OSError:
+        return ""
+
+def _resolve_path(path: str, known: list) -> str:
+    """LLMs often emit a shortened/relative file path; map it back to the real absolute
+    path from the bundle so the verifier reads actual source and graph lookups match.
+    Falls back to the original path when the match is missing or ambiguous."""
+    if not path or path in known:
+        return path
+    cands = [k for k in known if k.endswith(path)]
+    if not cands:
+        base = path.rsplit("/", 1)[-1]
+        cands = [k for k in known if k.rsplit("/", 1)[-1] == base]
+    return cands[0] if len(cands) == 1 else path
+
+def _premise_source(finding: Finding, data_dir: str) -> str:
+    """Source the verifier reads to confirm/refute the premise: the finding's own file,
+    plus — when a graph exists — the 1-hop caller/callee bodies of functions in that file
+    (so 'the caller already handles it' claims can be checked against real callers).
+    Crash-safe when data_dir is empty / graph.db is absent (baseline mode)."""
+    parts = [_read(finding.file)]
+    db = (pathlib.Path(data_dir) / "graph.db") if data_dir else None
+    if db and db.exists():
+        conn = graph._db(data_dir)
+        try:
+            qns = [r[0] for r in conn.execute(
+                "SELECT qualified_name FROM nodes WHERE file_path=? AND kind='Function'",
+                (finding.file,))]
+        finally:
+            conn.close()
+        for qn in qns:
+            r = graph.blast_radius(qn, data_dir)
+            for node in (*r.callers, *r.callees):
+                src = _read(node.file_path).splitlines()
+                lo = max(0, node.line_start - 1); hi = min(len(src), node.line_end)
+                parts.append(f"# {node.qualified_name}\n" + "\n".join(src[lo:hi]))
+    return "\n\n".join(p for p in parts if p)[:VERIFY_SOURCE_MAX_CHARS]
+
+def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
+        min_severity: str = "major") -> List[Finding]:
+    llm = llm or Client.from_env()
+
+    # Stage 1 — find (high recall). max_tokens must be generous: M2.1 is a reasoning model,
+    # so thinking + the JSON answer share the completion budget; 2000 truncates real reviews
+    # (finish_reason=length) and the partial JSON fails to parse -> silent 0 findings.
+    found = _parse_json(llm.complete(prompt.find_prompt(bundle), max_tokens=FIND_MAX_TOKENS)).get("findings", [])
+    candidates = [Finding(**{k: f.get(k) for k in
+                  ("severity", "file", "line", "title", "rationale", "premise")})
+                  for f in found]
+
+    # drop malformed candidates (LLM may omit keys -> None) before we dereference them
+    candidates = [c for c in candidates if c.severity and c.file and c.title]
+
+    # resolve shortened/relative file paths back to the bundle's real absolute paths,
+    # else the verifier reads empty source and wrongly refutes (false negative).
+    known = list(bundle.changed_files.keys())
+    for c in candidates:
+        c.file = _resolve_path(c.file, known)
+
+    # severity gate (drop below threshold before paying for verify)
+    floor = _SEV_ORDER.get(min_severity, 1)
+    candidates = [c for c in candidates if _SEV_ORDER.get(c.severity, 0) >= floor]
+
+    # Stage 2 — grounded refutation (high precision). Drop ONLY on an explicit refutation
+    # (confirmed == false). A parse failure / missing verdict is a TECHNICAL miss, not a
+    # refutation — surfacing the finding as unverified (confirmed=None) protects recall
+    # (北極星「不漏」): a transient glitch must never silently hide a real finding.
+    kept: List[Finding] = []
+    for c in candidates:
+        src = _premise_source(c, data_dir)
+        verdict = _parse_json(llm.complete(
+            prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
+        c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
+        if c.confirmed is not False:   # keep confirmed (True) and unverified (None); drop only explicit False
+            kept.append(c)
+    return kept

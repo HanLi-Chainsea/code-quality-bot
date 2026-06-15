@@ -1,4 +1,6 @@
 .env
+.DS_Store
+**/.DS_Store
 samples/petclinic/
 *.log
 samples/review-sample/
@@ -6,3 +8,15 @@ samples/review-sample/
 # deploy: real (filled) secret files — never commit
 deploy/.env
 deploy/pr_agent.gitlab.toml
+
+# deploy: live LiteLLM config — model choice is local, not enshrined in VC (use config.yaml.example)
+deploy/config.yaml
+
+# pr-agent: LAB-only toml may get real secrets pasted in by mistake — keep it out
+pr-agent/.pr_agent.gitlab.toml
+
+# review-engine local
+review-engine/.venv/
+review-engine/**/__pycache__/
+review-engine/**/*.egg-info/
+var/

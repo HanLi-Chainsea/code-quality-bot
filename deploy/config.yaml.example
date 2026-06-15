@@ -2,18 +2,38 @@
 #  MODEL SWAP PANEL  —  this is the only place you change the model.
 #  PR-Agent always calls the alias "reviewer" (see pr_agent.gitlab.toml,
 #  model = "openai/reviewer"). To switch models, repoint the `reviewer`
-#  alias below to a different backend, then: docker compose up -d litellm
+#  alias below to a different backend, then: docker compose up -d --force-recreate litellm
 #  (PR-Agent config NEVER changes.)
+#
+#  This is a TEMPLATE. Copy it to config.yaml (gitignored) and put your CURRENT
+#  model there — the live model choice is kept out of git on purpose, so swapping
+#  models (or following a vendor's newer release) never needs a commit.
+#    cp config.yaml.example config.yaml
 # ============================================================
 model_list:
-  # ---- ACTIVE: the alias PR-Agent uses. Repoint this one block to swap. ----
+  # ---- ACTIVE: the alias PR-Agent uses. Pick ONE backend from the panel below. ----
   - model_name: reviewer
     litellm_params:
-      model: openai/MiniMax-Text-01          # MiniMax (current)
-      api_base: https://api.minimax.io/v1
-      api_key: os.environ/MINIMAX_API_KEY
+      model: <provider/model-id>            # e.g. minimax/MiniMax-M2.1 · anthropic/<id> · gemini/<id> · openai/<id>
+      api_base: <provider-base-url>         # e.g. https://api.minimax.io/v1  (omit for OpenAI/Anthropic native)
+      api_key: os.environ/<PROVIDER_KEY>    # name the env var here; put the value in .env
+      # If your model is a *thinking* model that wraps reasoning in <think>...</think>
+      # (MiniMax M2.x, DeepSeek-R1, etc.), split it out so PR-Agent's YAML parser sees clean
+      # content — thinking still happens, it just stops leaking into the parsed output:
+      #   extra_body: { reasoning_split: true }   # param name is provider-specific (this is MiniMax's)
+      #   (declare it below too)
+    # model_info:
+    #   supports_reasoning: true
 
   # ---- SWAP OPTIONS: copy ONE of these over the block above to switch. ----
+  # Cloud — MiniMax (code/agent model; thinking model → use the reasoning_split note above):
+  # - model_name: reviewer
+  #   litellm_params:
+  #     model: minimax/MiniMax-M2.1
+  #     api_base: https://api.minimax.io/v1
+  #     api_key: os.environ/MINIMAX_API_KEY
+  #     extra_body: { reasoning_split: true }
+  #   model_info: { supports_reasoning: true }
   # Cloud — Anthropic Claude (fill the current model id your account has):
   # - model_name: reviewer
   #   litellm_params: { model: anthropic/<claude-model-id>, api_key: os.environ/ANTHROPIC_API_KEY }

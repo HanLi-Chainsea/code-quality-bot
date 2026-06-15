@@ -1,0 +1,22 @@
+[project]
+name = "review-engine"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "code-review-graph==2.3.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["review_engine*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

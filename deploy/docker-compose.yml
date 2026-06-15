@@ -16,6 +16,8 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     volumes:
       - ./config.yaml:/app/config.yaml:ro
+    ports:
+      - "127.0.0.1:4000:4000"   # loopback only — lets the host-run review-engine reach the reviewer alias
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
       interval: 30s

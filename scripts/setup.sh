@@ -8,7 +8,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] || { echo "cp .env.example .env and set MINIMAX_API_KEY first"; exit 1; }
-DK(){ sg docker -c "$*"; }
+if command -v sg >/dev/null 2>&1 && getent group docker >/dev/null 2>&1; then
+  DK(){ sg docker -c "$*"; }   # Linux host without docker-group membership
+else
+  DK(){ eval "$@"; }            # macOS (Docker Desktop) or Linux user already in docker group
+fi
 
 echo "▶ litellm + gitlab-ce..."
 DK "docker compose up -d litellm gitlab-ce"
