@@ -18,4 +18,5 @@ pr-agent/.pr_agent.gitlab.toml
 # review-engine local
 review-engine/.venv/
 review-engine/**/__pycache__/
+review-engine/**/*.egg-info/
 var/
