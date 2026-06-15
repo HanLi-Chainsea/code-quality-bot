@@ -2,7 +2,7 @@
 [config]
 model = "openai/reviewer"   # stable alias; the real model lives in config.yaml
 fallback_models = []
-custom_model_max_tokens = 32000
+custom_model_max_tokens = 200000   # set near your model's context window. Spend still capped by LiteLLM max_budget + provider console.
 git_provider = "gitlab"
 publish_output = true
 response_language = "zh-TW"   # 預設輸出語言；改成 "en-US" 用英文，"zh-CN" 用簡中
