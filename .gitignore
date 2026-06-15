@@ -14,3 +14,8 @@ deploy/config.yaml
 
 # pr-agent: LAB-only toml may get real secrets pasted in by mistake — keep it out
 pr-agent/.pr_agent.gitlab.toml
+
+# review-engine local
+review-engine/.venv/
+review-engine/**/__pycache__/
+var/
