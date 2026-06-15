@@ -104,6 +104,7 @@ Default is Traditional Chinese (`response_language = "zh-TW"` in the `[config]` 
 | 401 / 403 in logs | PAT expired or scope insufficient | rotate token |
 | 500 after a model swap | wrong provider key in `.env`, or typo in `reviewer` block | `docker compose logs litellm` |
 | Webhook says "couldn't connect" | tunnel URL changed (e.g. trycloudflare restarted) | get new URL → update GitLab webhook |
+| cloudflared shows `dial tcp [::1]:3033: connect: connection refused` | tunnel points at `localhost`, but compose only binds `127.0.0.1:3033` | change the tunnel URL to `http://127.0.0.1:3033` |
 | `JSONDecodeError` at startup | placeholder still in `personal_access_token` | put real `glpat-...` in toml |
 | MiniMax bill spiking | LiteLLM `max_budget` is best-effort only | set a hard cap in the MiniMax console |
 

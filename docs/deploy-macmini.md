@@ -38,7 +38,7 @@ cp pr_agent.gitlab.toml.example pr_agent.gitlab.toml && chmod 600 pr_agent.gitla
 ```
 docker compose up -d
 docker compose logs -f pr-agent     # should show: Uvicorn running on http://0.0.0.0:3000
-curl -s localhost:3033/             # should return 200
+curl -i http://127.0.0.1:3033/      # should reach the server; 405 is OK for a GET
 ```
 
 ## Step 4 — make a GitLab bot token
@@ -54,11 +54,11 @@ cloudflared tunnel login                       # opens browser, pick your domain
 cloudflared tunnel create cqb
 cloudflared tunnel route dns cqb cqb.YOURDOMAIN.com
 # run it (point the public hostname at the local pr-agent port):
-cloudflared tunnel --url http://localhost:3033 run cqb
-# (for a permanent service: `cloudflared service install` + a config.yml mapping cqb.YOURDOMAIN.com -> http://localhost:3033)
+cloudflared tunnel --url http://127.0.0.1:3033 run cqb
+# (for a permanent service: `cloudflared service install` + a config.yml mapping cqb.YOURDOMAIN.com -> http://127.0.0.1:3033)
 ```
 Now `https://cqb.YOURDOMAIN.com/webhook` reaches the Mac mini.
-(Quick test alternative, no domain: `cloudflared tunnel --url http://localhost:3033` prints a temporary https URL.)
+(Quick test alternative, no domain: `cloudflared tunnel --url http://127.0.0.1:3033` prints a temporary https URL.)
 
 ## Step 6 — register the webhook in GitLab (once, group-level = all repos covered)
 GitLab → Group → Settings → Webhooks → Add:

@@ -103,6 +103,7 @@ PR-Agent 會自動把 `describe` / `review` / `improve` 三種產出貼進 MR。
 | log 出現 401 / 403 | PAT 過期或 scope 不夠 | rotate token |
 | 換模型後跳 500 | `.env` 裡的 key 錯，或 `reviewer` 區塊打字錯 | `docker compose logs litellm` |
 | Webhook 顯示 "couldn't connect" | tunnel URL 換了（例如 trycloudflare 重啟） | 拿新 URL → 更新 GitLab webhook |
+| cloudflared 顯示 `dial tcp [::1]:3033: connect: connection refused` | tunnel 指到 `localhost`，但 compose 只綁 `127.0.0.1:3033` | tunnel URL 改成 `http://127.0.0.1:3033` |
 | 啟動時跳 `JSONDecodeError` | `personal_access_token` 還是 placeholder 沒換 | 把真的 `glpat-...` 填進 toml |
 | MiniMax 帳單暴衝 | LiteLLM 的 `max_budget` 只是 best-effort | 到 MiniMax 後台設 hard cap |
 
