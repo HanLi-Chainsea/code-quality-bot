@@ -12,9 +12,12 @@ def _diff_only_findings(repo: str, base: str, llm=None):
     b = Bundle(diff=diff)  # changed_files/related empty on purpose
     return review.run(b, data_dir="", llm=llm)
 
+def _mark(f):
+    return {True: "✓ verified", None: "? unverified", False: "✗ refuted"}.get(f.confirmed, "")
+
 def _print(findings):
     for f in findings:
-        print(f"[{f.severity}] {f.file}:{f.line}  {f.title}")
+        print(f"[{f.severity}] {_mark(f)}  {f.file}:{f.line}  {f.title}")
         print(f"    {f.rationale}")
     print(f"\n{len(findings)} finding(s).")
 

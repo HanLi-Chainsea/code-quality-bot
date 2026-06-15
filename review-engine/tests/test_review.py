@@ -60,3 +60,18 @@ def test_premise_source_pulls_real_source(fixture_repo, fixture_graph_dir):
                 title="t", rationale="r", premise="p")
     src = review._premise_source(f, str(fixture_graph_dir))
     assert "def add" in src
+
+def test_review_keeps_unverified_on_parse_miss(fixture_repo, fixture_graph_dir):
+    # A verifier that returns no parseable verdict is a TECHNICAL miss, not a refutation.
+    # The finding must be surfaced as unverified (confirmed=None), never silently dropped.
+    from review_engine import context
+    b = context.build_bundle(str(fixture_repo), "HEAD~1", str(fixture_graph_dir))
+    fake = FakeLLM(
+        find_payload={"findings": [
+            {"severity": "major", "file": "/r/util.py", "line": 1,
+             "title": "real bug", "rationale": "x", "premise": "p"}]},
+        verify_payloads=[{}],   # no "confirmed" key -> parse yields {} -> technical miss
+    )
+    findings = review.run(b, str(fixture_graph_dir), llm=fake)
+    assert len(findings) == 1
+    assert findings[0].confirmed is None
