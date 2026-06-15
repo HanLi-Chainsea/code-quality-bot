@@ -43,8 +43,14 @@
 
 落地手法：
 1. **Prompt 框架**：「只報你願意**因此擋下這個 merge** 的問題」；嚴重度分級 `blocker / major / minor`；明確指示**不要**報純風格 / 命名 / 格式。
-2. **兩階段 pipeline**：find（高 recall）→ verify（每個發現獨立對抗式查證「這真的成立嗎？能重現嗎？」）→ 只貼通過驗證的。
+2. **兩階段 pipeline，verify 做「grounded refutation（落地反證）」**：find（高 recall）先產候選 → verify 對**每一條**發現，把它**所依賴的前提追到實際源碼**（用 graph 把 finding 提到的 symbol / 檔案 / caller / callee 拉出來讀），問「**順著這個意見去讀真實的程式碼，前提還成立嗎？**」。**只要源碼顯示『其實已經處理了／情況不是它講的那樣』，就丟掉這條。** 預設傾向反證（uncertain → drop）。只貼通過落地反證的。
 3. **嚴重度 gating**：預設只貼 `blocker`+`major`，`minor` 收進折疊區或丟棄。
+
+> **要殺的頭號 FP（diff-myopia）**：基於 diff 的意見，順著去讀源碼才發現「原本其實沒問題」——
+> 相關處理在 diff 看不到的地方，或 caller/callee 已經 cover。這正是兩道防線聯手要擋的：
+> §5 的 blast-radius context（完整檔＋上下游餵進去，**find 階段就不必臆測**）＋ 上面的 verify
+> 落地反證（**每條發現都要被真實源碼背書**，背書不過就丟）。Phase 1 的 eval rubric 要把這類
+> 「聽起來合理但源碼一讀就不成立」的發現單獨計為 FP。
 
 ## 5. 架構（三個元件）
 
