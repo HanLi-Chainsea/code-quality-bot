@@ -12,7 +12,11 @@ SYSTEM_FIND = (
 )
 
 def _render_context(b: Bundle) -> str:
-    parts = ["## 改動 diff", b.diff, "\n## 改動檔（全文）"]
+    parts = []
+    if b.notes:
+        parts.append("## 注意（context 取捨，可能未含完整檔案）\n"
+                     + "\n".join(f"- {n}" for n in b.notes))
+    parts += ["## 改動 diff", b.diff, "\n## 改動檔內容（大改動時為高風險函式片段）"]
     for path, src in b.changed_files.items():
         parts.append(f"### {path}\n{src}")
     if b.related:

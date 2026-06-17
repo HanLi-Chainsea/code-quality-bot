@@ -47,7 +47,8 @@ class Finding:
 
 @dataclass
 class Bundle:
-    changed_files: dict = field(default_factory=dict)   # path -> full source
+    changed_files: dict = field(default_factory=dict)   # path -> full source (or function excerpts if large)
     related: dict = field(default_factory=dict)         # qualified_name -> source snippet
     diff: str = ""
     est_tokens: int = 0
+    notes: list = field(default_factory=list)           # what was summarised/dropped (no silent truncation)
