@@ -1,4 +1,12 @@
+import pytest
 from cqb_patch import repo_graph
+
+def test_ensure_repo_rejects_unsafe_inputs(tmp_path):
+    # argv flag-smuggling defence: a non-SHA head or non-http scheme must be refused before git runs
+    with pytest.raises(ValueError):
+        repo_graph.ensure_repo("https://x/y.git", "--upload-pack=evil", str(tmp_path))
+    with pytest.raises(ValueError):
+        repo_graph.ensure_repo("ext::sh -c evil", "a1b2c3d", str(tmp_path))
 
 def test_blast_context_for_local_repo(fixture_repo, tmp_path):
     # fixture_repo: HEAD changes util.add(); main.run() calls it. base = HEAD~1.
