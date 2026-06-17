@@ -21,8 +21,22 @@ def _render_context(b: Bundle) -> str:
             parts.append(snip)
     return "\n".join(parts)
 
-def find_prompt(b: Bundle) -> str:
-    return f"{SYSTEM_FIND}\n\n{_render_context(b)}"
+# Diverse review lenses. Running find once per lens (then union+dedup) surfaces deeper,
+# senior-level issues that a single general pass misses — concurrency, breaking changes,
+# behaviour regressions — and stabilises recall against the model's run-to-run variance.
+FIND_LENSES = [
+    "",  # general pass (the base instruction above)
+    "本輪請特別聚焦【breaking change / 跨檔影響】：改動的函式簽章、回傳型別、查詢鍵（例如改用不同欄位查資料）、"
+    "或契約語意是否會讓既有 caller 壞掉、查不到、或行為悄悄改變。順著 caller/callee 想清楚波及面。",
+    "本輪請特別聚焦【並行 / 競態 / 順序】：TOCTOU（先檢查再使用/建立）、非原子的『查不到就新建』、"
+    "重複建立、缺少冪等性、跨請求的競態。",
+    "本輪請特別聚焦【行為變更 / 移除的邏輯】：這次刪掉或改掉的程式碼讓系統『不再做』什麼？"
+    "（例如移除了快取、移除了某個挑選/回退邏輯、改了預設值），這些沉默的變更有什麼後果。",
+]
+
+def find_prompt(b: Bundle, lens: str = "") -> str:
+    head = SYSTEM_FIND if not lens else f"{SYSTEM_FIND}\n\n【本輪視角】{lens}"
+    return f"{head}\n\n{_render_context(b)}"
 
 def verify_prompt(finding_title: str, premise: str, source: str) -> str:
     return (
@@ -30,8 +44,10 @@ def verify_prompt(finding_title: str, premise: str, source: str) -> str:
         f"發現：{finding_title}\n"
         f"它依賴的前提：{premise}\n"
         "下面是這條前提實際對應的源碼。請順著前提去讀真實源碼，判斷前提是否成立。\n"
-        "如果源碼顯示『其實已經處理了／情況不是它講的那樣』，前提不成立 → confirmed=false。\n"
-        "不確定就 confirmed=false（寧可放過）。\n"
+        "只有當源碼【明確】反證前提時（例如該情況其實已被處理、或事實根本不是它講的那樣），"
+        "才 confirmed=false。\n"
+        "若源碼支持前提、或你無法從源碼確定，一律 confirmed=true（保留，讓資深工程師判斷）。\n"
+        "原則：寧可保留讓人看，也不要誤殺一個真問題（不漏 > 不吵）。\n"
         f"\n## 實際源碼\n{source}\n\n"
         "輸出：{\"confirmed\": true|false, \"reason\": \"...\"}"
     )

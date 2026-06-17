@@ -66,17 +66,40 @@ def _premise_source(finding: Finding, data_dir: str) -> str:
                 parts.append(f"# {node.qualified_name}\n" + "\n".join(src[lo:hi]))
     return "\n\n".join(p for p in parts if p)[:VERIFY_SOURCE_MAX_CHARS]
 
-def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
-        min_severity: str = "major") -> List[Finding]:
-    llm = llm or Client.from_env()
+def _title_sig(title: str) -> str:
+    # signature = first 8 non-space chars, lowercased; merges "normalizePhone 缺驗證" vs
+    # "normalizePhone 格式缺口" (same subject) but keeps distinct subjects apart. More robust
+    # than line proximity, which splits one issue across lines and merges different issues nearby.
+    return re.sub(r"\s+", "", (title or "").lower())[:8]
 
-    # Stage 1 — find (high recall). max_tokens must be generous: M2.1 is a reasoning model,
-    # so thinking + the JSON answer share the completion budget; 2000 truncates real reviews
-    # (finish_reason=length) and the partial JSON fails to parse -> silent 0 findings.
-    found = _parse_json(llm.complete(prompt.find_prompt(bundle), max_tokens=FIND_MAX_TOKENS)).get("findings", [])
+def _dedup(cands: List[Finding]) -> List[Finding]:
+    """Merge duplicate findings about the same subject (same file + title signature) that
+    different lenses surfaced; keep the highest-severity instance."""
+    out = {}
+    for c in cands:
+        key = (c.file.rsplit("/", 1)[-1], _title_sig(c.title))
+        cur = out.get(key)
+        if cur is None or _SEV_ORDER.get(c.severity, 0) > _SEV_ORDER.get(cur.severity, 0):
+            out[key] = c
+    return list(out.values())
+
+def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
+        min_severity: str = "major", lenses: Optional[List[str]] = None) -> List[Finding]:
+    llm = llm or Client.from_env()
+    lenses = prompt.FIND_LENSES if lenses is None else lenses
+
+    # Stage 1 — multi-pass find (one pass per lens), then UNION. Diverse lenses surface deeper
+    # issues (concurrency, breaking changes, behaviour regressions) and several passes stabilise
+    # recall against the model's run-to-run variance (北極星「不漏」). max_tokens stays generous:
+    # reasoning models spend completion budget thinking before the JSON, and truncation -> 0 findings.
+    raw = []
+    for lens in lenses:
+        raw.extend(_parse_json(
+            llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
+        ).get("findings", []))
     candidates = [Finding(**{k: f.get(k) for k in
                   ("severity", "file", "line", "title", "rationale", "premise")})
-                  for f in found]
+                  for f in raw]
 
     # drop malformed candidates (LLM may omit keys -> None) before we dereference them
     candidates = [c for c in candidates if c.severity and c.file and c.title]
@@ -86,6 +109,8 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     known = list(bundle.changed_files.keys())
     for c in candidates:
         c.file = _resolve_path(c.file, known)
+
+    candidates = _dedup(candidates)   # collapse cross-lens repeats of the same issue
 
     # severity gate (drop below threshold before paying for verify)
     floor = _SEV_ORDER.get(min_severity, 1)
