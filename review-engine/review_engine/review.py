@@ -136,3 +136,46 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
         verified = list(ex.map(_verify_one, candidates))          # ex.map preserves order
     # keep confirmed (True) and unverified (None); drop only explicit False
     return [c for c in verified if c.confirmed is not False]
+
+def _loc(f: Finding) -> str:
+    return f"{f.file.rsplit('/', 1)[-1]}:{f.line}"
+
+def consolidate(findings: List[Finding], llm: Optional[Client] = None) -> List[Finding]:
+    """Merge same-root-cause findings (one logic change reported at N trigger points) into one,
+    listing every trigger location. Safety net: any finding the model fails to place in a group
+    is kept as-is, so consolidation can only de-duplicate, never silently drop (北極星「不漏」)."""
+    if len(findings) <= 1:
+        for f in findings:
+            f.locations = f.locations or [_loc(f)]
+        return findings
+    llm = llm or Client.from_env()
+    summary = "\n".join(f"[{i}] [{f.severity}] {_loc(f)} {f.title} — {f.rationale}"
+                        for i, f in enumerate(findings))
+    groups = _parse_json(llm.complete(prompt.consolidate_prompt(summary),
+                                      max_tokens=FIND_MAX_TOKENS)).get("groups")
+    if not groups:
+        for f in findings:
+            f.locations = f.locations or [_loc(f)]
+        return findings   # consolidation produced nothing usable -> keep originals
+
+    out, covered = [], set()
+    for g in groups:
+        idxs = [i for i in g.get("members", []) if isinstance(i, int) and 0 <= i < len(findings)]
+        if not idxs:
+            continue
+        covered.update(idxs)
+        members = [findings[i] for i in idxs]
+        primary = max(members, key=lambda f: _SEV_ORDER.get(f.severity, 0))
+        out.append(Finding(
+            severity=primary.severity, file=primary.file, line=primary.line,
+            title=g.get("title") or primary.title,
+            rationale=g.get("rationale") or primary.rationale,
+            premise=primary.premise, confirmed=primary.confirmed,
+            locations=[_loc(f) for f in members],
+        ))
+    # safety net: never drop a finding the model forgot to group
+    for i, f in enumerate(findings):
+        if i not in covered:
+            f.locations = f.locations or [_loc(f)]
+            out.append(f)
+    return out

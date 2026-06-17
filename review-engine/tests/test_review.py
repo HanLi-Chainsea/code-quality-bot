@@ -104,3 +104,26 @@ def test_review_multipass_unions_and_dedups(fixture_repo, fixture_graph_dir):
     assert fake.find_calls == 2          # one find pass per lens
     assert len(findings) == 1            # the duplicate across lenses collapsed to one
     assert findings[0].title == "same issue"
+
+def test_consolidate_merges_same_root_and_never_drops():
+    from review_engine.models import Finding
+    findings = [
+        Finding(severity="major", file="/r/F.java", line=10, title="A trigger 1", rationale="x", confirmed=True),
+        Finding(severity="blocker", file="/r/F.java", line=20, title="A trigger 2", rationale="y", confirmed=True),
+        Finding(severity="major", file="/r/F.java", line=99, title="B distinct", rationale="z", confirmed=True),
+    ]
+    class CFake:   # groups 0+1 (same root) and intentionally omits 2 to exercise the safety net
+        def complete(self, prompt, max_tokens=2000):
+            return '{"groups":[{"title":"A merged","severity":"blocker","rationale":"m","members":[0,1]}]}'
+    out = review.consolidate(findings, llm=CFake())
+    assert len(out) == 2                                    # merged A(0+1) + B kept by safety net
+    merged = next(f for f in out if f.title == "A merged")
+    assert merged.severity == "blocker"
+    assert sorted(merged.locations) == ["F.java:10", "F.java:20"]
+    assert any(f.title == "B distinct" for f in out)        # ungrouped finding never dropped
+
+def test_consolidate_single_finding_is_noop():
+    from review_engine.models import Finding
+    f = [Finding(severity="major", file="/r/F.java", line=10, title="solo", rationale="x", confirmed=True)]
+    out = review.consolidate(f, llm=None)                   # must not call any LLM for <=1 finding
+    assert len(out) == 1 and out[0].locations == ["F.java:10"]

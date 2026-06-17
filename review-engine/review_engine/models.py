@@ -40,6 +40,7 @@ class Finding:
     rationale: str
     premise: str = ""        # what off-diff fact the finding assumes (verified in stage 2)
     confirmed: Optional[bool] = None
+    locations: list = field(default_factory=list)   # "file:line" trigger points after consolidation
 
     def to_dict(self) -> dict:
         return asdict(self)

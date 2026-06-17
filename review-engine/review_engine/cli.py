@@ -19,6 +19,8 @@ def _print(findings):
     for f in findings:
         print(f"[{f.severity}] {_mark(f)}  {f.file}:{f.line}  {f.title}")
         print(f"    {f.rationale}")
+        if len(f.locations) > 1:
+            print(f"    觸發點: {', '.join(f.locations)}")
     print(f"\n{len(findings)} finding(s).")
 
 def main(argv=None) -> int:
@@ -41,7 +43,9 @@ def main(argv=None) -> int:
     else:
         graph.update(args.repo, data_dir)
     bundle = context.build_bundle(args.repo, args.base, data_dir)
-    _print(review.run(bundle, data_dir, min_severity=args.min_severity))
+    findings = review.run(bundle, data_dir, min_severity=args.min_severity)
+    findings = review.consolidate(findings)   # merge same-root-cause findings, list trigger points
+    _print(findings)
     return 0
 
 if __name__ == "__main__":
