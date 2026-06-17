@@ -1,0 +1,30 @@
+import yaml
+from cqb_patch import verify_patch
+
+PREDICTION = """\
+review:
+  key_issues_to_review:
+  - relevant_file: src/A.java
+    issue_header: Possible Bug
+    issue_content: after Asserts.fail the code keeps running
+    start_line: 10
+    end_line: 12
+  - relevant_file: src/A.java
+    issue_header: Real Bug
+    issue_content: null deref on cold cache path
+    start_line: 40
+    end_line: 41
+"""
+
+def test_filter_drops_refuted_keeps_others(monkeypatch):
+    # verdict: first issue REFUTED (confirmed false), second has no verdict -> kept
+    verdicts = iter([{"confirmed": False, "reason": "Asserts.fail throws"}, {}])
+    monkeypatch.setattr(verify_patch, "_verdict", lambda issue, repo_dir: next(verdicts))
+    new_pred = verify_patch.filter_prediction(PREDICTION, repo_dir="/tmp/repo")
+    data = yaml.safe_load(new_pred)
+    headers = [i["issue_header"] for i in data["review"]["key_issues_to_review"]]
+    assert "Real Bug" in headers
+    assert "Possible Bug" not in headers          # explicitly refuted -> dropped
+
+def test_filter_is_transparent_on_parse_failure():
+    assert verify_patch.filter_prediction("not: [valid", repo_dir="/x") == "not: [valid"
