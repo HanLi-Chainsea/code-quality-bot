@@ -42,18 +42,6 @@ def find_prompt(b: Bundle, lens: str = "") -> str:
     head = SYSTEM_FIND if not lens else f"{SYSTEM_FIND}\n\n【本輪視角】{lens}"
     return f"{head}\n\n{_render_context(b)}"
 
-def consolidate_prompt(findings_summary: str) -> str:
-    return (
-        "以下是一份 code review 的多條發現。有些其實是【同一個根本原因】在不同位置或不同觸發點"
-        "的重複描述（例如同一個邏輯改動在 5 個 if 分支各被報一次）。\n"
-        "請把同根因的合併成一條，並在 members 裡列出它涵蓋的所有輸入編號；不同根因的保持獨立。\n"
-        "規則：① 只合併真正同根因的；② 絕對不要刪掉任何獨立問題；"
-        "③ 每一條輸入發現的編號都必須出現在某個 group 的 members 裡（寧可獨立成一組，也不要漏）。\n"
-        "severity 取該組最嚴重的。用繁體中文，只輸出 JSON：\n"
-        "{\"groups\":[{\"title\":..,\"severity\":\"blocker|major|minor\",\"rationale\":..,\"members\":[編號,..]}]}\n\n"
-        f"## 發現清單（編號從 0 起）\n{findings_summary}"
-    )
-
 def verify_prompt(finding_title: str, premise: str, source: str) -> str:
     return (
         "你在對一條 code review 發現做『落地反證』。用繁體中文，只輸出 JSON。\n"

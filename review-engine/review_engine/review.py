@@ -140,42 +140,51 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
 def _loc(f: Finding) -> str:
     return f"{f.file.rsplit('/', 1)[-1]}:{f.line}"
 
+# A finding's "code symbols" = camelCase / PascalCase identifiers with an internal lower->upper
+# hump (e.g. nextBizId, IdGeneratorService, normalizePhone). These are reliable root-cause keys;
+# generic prose words, ALLCAPS (JWT), and single-cap words (Account) are intentionally excluded.
+_IDENT_RE = re.compile(r'[A-Za-z][A-Za-z0-9]{2,}')
+
+def _symbols(f: Finding) -> set:
+    text = (f.title or "") + " " + (f.rationale or "")
+    return {w.lower() for w in _IDENT_RE.findall(text) if re.search(r'[a-z][A-Z]', w)}
+
+def _cluster(findings: List[Finding]) -> List[List[int]]:
+    """Union-find cluster of finding indices that share a code symbol (same root cause across
+    many files). Findings with no/unique symbols stay singletons. Fully deterministic."""
+    n = len(findings)
+    parent = list(range(n))
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    def union(a, b):
+        parent[find(a)] = find(b)
+    seen = {}
+    for i, f in enumerate(findings):
+        for sym in _symbols(f):
+            if sym in seen:
+                union(i, seen[sym])
+            else:
+                seen[sym] = i
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    return list(groups.values())
+
 def consolidate(findings: List[Finding], llm: Optional[Client] = None) -> List[Finding]:
-    """Merge same-root-cause findings (one logic change reported at N trigger points) into one,
-    listing every trigger location. Safety net: any finding the model fails to place in a group
-    is kept as-is, so consolidation can only de-duplicate, never silently drop (北極星「不漏」)."""
+    """Merge same-root-cause findings (one change reported at N trigger points across files) into
+    one, listing every trigger location. DETERMINISTIC (shared-code-symbol clustering) — no LLM,
+    no run-to-run variance, and never drops: every finding lands in exactly one cluster.
+    (`llm` kept for signature compatibility; unused.)"""
     if len(findings) <= 1:
         for f in findings:
             f.locations = f.locations or [_loc(f)]
         return findings
-    llm = llm or Client.from_env()
-    summary = "\n".join(f"[{i}] [{f.severity}] {_loc(f)} {f.title} — {f.rationale}"
-                        for i, f in enumerate(findings))
-    groups = _parse_json(llm.complete(prompt.consolidate_prompt(summary),
-                                      max_tokens=FIND_MAX_TOKENS)).get("groups")
-    if not groups:
-        for f in findings:
-            f.locations = f.locations or [_loc(f)]
-        return findings   # consolidation produced nothing usable -> keep originals
-
-    out, covered = [], set()
-    for g in groups:
-        idxs = [i for i in g.get("members", []) if isinstance(i, int) and 0 <= i < len(findings)]
-        if not idxs:
-            continue
-        covered.update(idxs)
+    out = []
+    for idxs in _cluster(findings):
         members = [findings[i] for i in idxs]
         primary = max(members, key=lambda f: _SEV_ORDER.get(f.severity, 0))
-        out.append(Finding(
-            severity=primary.severity, file=primary.file, line=primary.line,
-            title=g.get("title") or primary.title,
-            rationale=g.get("rationale") or primary.rationale,
-            premise=primary.premise, confirmed=primary.confirmed,
-            locations=[_loc(f) for f in members],
-        ))
-    # safety net: never drop a finding the model forgot to group
-    for i, f in enumerate(findings):
-        if i not in covered:
-            f.locations = f.locations or [_loc(f)]
-            out.append(f)
+        primary.locations = sorted({_loc(f) for f in members})
+        out.append(primary)
     return out

@@ -105,25 +105,37 @@ def test_review_multipass_unions_and_dedups(fixture_repo, fixture_graph_dir):
     assert len(findings) == 1            # the duplicate across lenses collapsed to one
     assert findings[0].title == "same issue"
 
-def test_consolidate_merges_same_root_and_never_drops():
+def test_consolidate_clusters_by_shared_symbol_and_never_drops():
+    # Deterministic: findings sharing a code symbol (nextBizId / IdGeneratorService) are one root
+    # cause across files; a finding with a different symbol (normalizePhone) stays separate.
     from review_engine.models import Finding
     findings = [
-        Finding(severity="major", file="/r/F.java", line=10, title="A trigger 1", rationale="x", confirmed=True),
-        Finding(severity="blocker", file="/r/F.java", line=20, title="A trigger 2", rationale="y", confirmed=True),
-        Finding(severity="major", file="/r/F.java", line=99, title="B distinct", rationale="z", confirmed=True),
+        Finding(severity="major", file="/r/A.java", line=10,
+                title="nextBizId 換成 objectId 風險", rationale="使用 IdGeneratorService.nextBizId", confirmed=True),
+        Finding(severity="blocker", file="/r/B.java", line=20,
+                title="nextBizId 換成 objectId", rationale="IdGeneratorService.nextBizId 被換掉", confirmed=True),
+        Finding(severity="major", file="/r/C.java", line=99,
+                title="normalizePhone 區域問題", rationale="normalizePhone 只支援台灣", confirmed=True),
     ]
-    class CFake:   # groups 0+1 (same root) and intentionally omits 2 to exercise the safety net
-        def complete(self, prompt, max_tokens=2000):
-            return '{"groups":[{"title":"A merged","severity":"blocker","rationale":"m","members":[0,1]}]}'
-    out = review.consolidate(findings, llm=CFake())
-    assert len(out) == 2                                    # merged A(0+1) + B kept by safety net
-    merged = next(f for f in out if f.title == "A merged")
-    assert merged.severity == "blocker"
-    assert sorted(merged.locations) == ["F.java:10", "F.java:20"]
-    assert any(f.title == "B distinct" for f in out)        # ungrouped finding never dropped
+    out = review.consolidate(findings)
+    assert len(out) == 2                                    # 2 nextBizId clustered, normalizePhone separate
+    idgrp = next(f for f in out if "nextBizId" in f.title)
+    assert idgrp.severity == "blocker"                     # highest severity in the cluster kept
+    assert sorted(idgrp.locations) == ["A.java:10", "B.java:20"]
+    assert any("normalizePhone" in f.title for f in out)  # distinct finding never dropped
+
+def test_consolidate_no_shared_symbols_keeps_all():
+    # distinct symbols -> no clustering -> nothing merged, nothing dropped
+    from review_engine.models import Finding
+    findings = [
+        Finding(severity="major", file="/r/A.java", line=1, title="getFoo issue", rationale="getFoo", confirmed=True),
+        Finding(severity="major", file="/r/B.java", line=2, title="setBar issue", rationale="setBar", confirmed=True),
+    ]
+    out = review.consolidate(findings)
+    assert len(out) == 2
 
 def test_consolidate_single_finding_is_noop():
     from review_engine.models import Finding
     f = [Finding(severity="major", file="/r/F.java", line=10, title="solo", rationale="x", confirmed=True)]
-    out = review.consolidate(f, llm=None)                   # must not call any LLM for <=1 finding
+    out = review.consolidate(f)
     assert len(out) == 1 and out[0].locations == ["F.java:10"]
