@@ -6,6 +6,7 @@ class Client:
     base_url: str
     api_key: str
     model: str = "reviewer"
+    timeout: int = 300        # strong reasoning models (e.g. MiniMax-M3) are slow on real prompts
 
     @classmethod
     def from_env(cls) -> "Client":
@@ -27,7 +28,7 @@ class Client:
         req = urllib.request.Request(self.base_url.rstrip("/") + "/chat/completions",
             data=body, headers={"Authorization": f"Bearer {self.api_key}",
                                 "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
             d = json.load(r)
         content = d["choices"][0]["message"].get("content") or ""
         return re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
