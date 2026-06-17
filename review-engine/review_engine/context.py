@@ -1,11 +1,17 @@
 import subprocess, pathlib
+from functools import lru_cache
 from .models import Bundle
 from . import graph
 
 def _approx_tokens(s: str) -> int:
     return max(1, len(s) // 4)   # ~4 chars/token; good enough for budgeting
 
+@lru_cache(maxsize=512)
 def _read(path: str) -> str:
+    # cached: a changed file is read once even when several of its functions are inlined.
+    # Safe for one-shot CLI/build runs (working tree is static during a review).
+    if not path:
+        return ""
     try:
         return pathlib.Path(path).read_text(errors="replace")
     except OSError:

@@ -10,6 +10,14 @@ _SEV_ORDER = {"minor": 0, "major": 1, "blocker": 2}
 # Reasoning models spend completion budget on thinking before the JSON answer; keep headroom.
 FIND_MAX_TOKENS = 8000
 VERIFY_MAX_TOKENS = 8000
+# Cap concurrent LLM calls so a big finding set can't flood the proxy / trip provider rate limits.
+MAX_WORKERS = 6
+
+def _first_int(v) -> int:
+    """LLMs emit `line` as int, "130", "130-145", or "130,500" — normalise to one int so the
+    `line: int` field and every `file:line` render stay clean (no '130,500,620' garbling)."""
+    m = re.search(r"\d+", str(v) if v is not None else "")
+    return int(m.group()) if m else 0
 # Cap the source fed to the verifier so a huge file + all callers/callees can't blow the
 # completion budget (which truncates the verdict and silently loses the finding).
 VERIFY_SOURCE_MAX_CHARS = 12000
@@ -94,11 +102,14 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     # recall against the model's run-to-run variance (北極星「不漏」). max_tokens stays generous:
     # reasoning models spend completion budget thinking before the JSON, and truncation -> 0 findings.
     def _find_pass(lens):
-        return _parse_json(
-            llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
-        ).get("findings", [])
+        try:
+            return _parse_json(
+                llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
+            ).get("findings", [])
+        except Exception:
+            return []   # one lens failing (timeout/429/parse) must not lose the other passes
     raw = []
-    with ThreadPoolExecutor(max_workers=max(1, len(lenses))) as ex:
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, max(1, len(lenses)))) as ex:
         for findings in ex.map(_find_pass, lenses):   # concurrent; cuts wall-clock ~Nx
             raw.extend(findings)
     candidates = [Finding(**{k: f.get(k) for k in
@@ -107,6 +118,8 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
 
     # drop malformed candidates (LLM may omit keys -> None) before we dereference them
     candidates = [c for c in candidates if c.severity and c.file and c.title]
+    for c in candidates:                  # normalise stringly-typed line ("130-145" -> 130)
+        c.line = _first_int(c.line)
 
     # resolve shortened/relative file paths back to the bundle's real absolute paths,
     # else the verifier reads empty source and wrongly refutes (false negative).
@@ -125,14 +138,17 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     # refutation — surfacing the finding as unverified (confirmed=None) protects recall
     # (北極星「不漏」): a transient glitch must never silently hide a real finding.
     def _verify_one(c):
-        src = _premise_source(c, data_dir)
-        verdict = _parse_json(llm.complete(
-            prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
-        c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
+        try:
+            src = _premise_source(c, data_dir)
+            verdict = _parse_json(llm.complete(
+                prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
+            c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
+        except Exception:
+            c.confirmed = None   # technical failure (timeout/429/db) -> keep as unverified, never drop
         return c
     if not candidates:
         return []
-    with ThreadPoolExecutor(max_workers=len(candidates)) as ex:   # verify all findings concurrently
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(candidates))) as ex:
         verified = list(ex.map(_verify_one, candidates))          # ex.map preserves order
     # keep confirmed (True) and unverified (None); drop only explicit False
     return [c for c in verified if c.confirmed is not False]
@@ -172,11 +188,10 @@ def _cluster(findings: List[Finding]) -> List[List[int]]:
         groups.setdefault(find(i), []).append(i)
     return list(groups.values())
 
-def consolidate(findings: List[Finding], llm: Optional[Client] = None) -> List[Finding]:
+def consolidate(findings: List[Finding]) -> List[Finding]:
     """Merge same-root-cause findings (one change reported at N trigger points across files) into
     one, listing every trigger location. DETERMINISTIC (shared-code-symbol clustering) — no LLM,
-    no run-to-run variance, and never drops: every finding lands in exactly one cluster.
-    (`llm` kept for signature compatibility; unused.)"""
+    no run-to-run variance, and never drops: every finding lands in exactly one cluster."""
     if len(findings) <= 1:
         for f in findings:
             f.locations = f.locations or [_loc(f)]

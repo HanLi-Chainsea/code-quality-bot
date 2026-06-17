@@ -4,12 +4,9 @@ from .llm import Client
 
 def _diff_only_findings(repo: str, base: str, llm=None):
     """Baseline: feed ONLY the diff (no graph, no inlined context) — what plain PR-Agent sees."""
-    import subprocess
-    llm = llm or Client.from_env()
-    diff = subprocess.run(["git", "-C", repo, "diff", base, "--"],
-                          capture_output=True, text=True).stdout
     from .models import Bundle
-    b = Bundle(diff=diff)  # changed_files/related empty on purpose
+    llm = llm or Client.from_env()
+    b = Bundle(diff=context._git_diff(repo, base))   # changed_files/related empty on purpose
     return review.run(b, data_dir="", llm=llm)
 
 def _mark(f):
