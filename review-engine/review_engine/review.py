@@ -1,15 +1,34 @@
-import json, re, pathlib
+import json, re, sys, pathlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from .models import Finding, Bundle
 from . import prompt, graph
 from .llm import Client
 
+def _warn(msg: str) -> None:
+    print(f"review-engine: {msg}", file=sys.stderr)
+
 _SEV_ORDER = {"minor": 0, "major": 1, "blocker": 2}
+
+# camelCase symbols too generic to indicate a shared root cause — excluded from clustering so two
+# unrelated findings that both mention e.g. findOne()/getId() are not wrongly merged (北極星 不漏).
+_GENERIC_SYMBOLS = {
+    "tostring", "hashcode", "getid", "setid", "getname", "setname", "findone", "findall",
+    "getitems", "getlist", "getvalue", "setvalue", "getuser", "getdata", "tostring",
+    "equalsignorecase", "isblank", "isempty", "isnotblank", "getinstance", "getbean",
+}
 
 # Reasoning models spend completion budget on thinking before the JSON answer; keep headroom.
 FIND_MAX_TOKENS = 8000
 VERIFY_MAX_TOKENS = 8000
+# Cap concurrent LLM calls so a big finding set can't flood the proxy / trip provider rate limits.
+MAX_WORKERS = 6
+
+def _first_int(v) -> int:
+    """LLMs emit `line` as int, "130", "130-145", or "130,500" — normalise to one int so the
+    `line: int` field and every `file:line` render stay clean (no '130,500,620' garbling)."""
+    m = re.search(r"\d+", str(v) if v is not None else "")
+    return int(m.group()) if m else 0
 # Cap the source fed to the verifier so a huge file + all callers/callees can't blow the
 # completion budget (which truncates the verdict and silently loses the finding).
 VERIFY_SOURCE_MAX_CHARS = 12000
@@ -78,7 +97,7 @@ def _dedup(cands: List[Finding]) -> List[Finding]:
     different lenses surfaced; keep the highest-severity instance."""
     out = {}
     for c in cands:
-        key = (c.file.rsplit("/", 1)[-1], _title_sig(c.title))
+        key = (c.file, _title_sig(c.title))   # full path: same-named files in different dirs stay distinct
         cur = out.get(key)
         if cur is None or _SEV_ORDER.get(c.severity, 0) > _SEV_ORDER.get(cur.severity, 0):
             out[key] = c
@@ -94,11 +113,15 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     # recall against the model's run-to-run variance (北極星「不漏」). max_tokens stays generous:
     # reasoning models spend completion budget thinking before the JSON, and truncation -> 0 findings.
     def _find_pass(lens):
-        return _parse_json(
-            llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
-        ).get("findings", [])
+        try:
+            return _parse_json(
+                llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
+            ).get("findings", [])
+        except Exception as e:
+            _warn(f"find pass failed ({e}) — this lens contributed nothing")  # visible, not silent
+            return []   # one lens failing (timeout/429/parse) must not lose the other passes
     raw = []
-    with ThreadPoolExecutor(max_workers=max(1, len(lenses))) as ex:
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, max(1, len(lenses)))) as ex:
         for findings in ex.map(_find_pass, lenses):   # concurrent; cuts wall-clock ~Nx
             raw.extend(findings)
     candidates = [Finding(**{k: f.get(k) for k in
@@ -107,10 +130,14 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
 
     # drop malformed candidates (LLM may omit keys -> None) before we dereference them
     candidates = [c for c in candidates if c.severity and c.file and c.title]
+    for c in candidates:                  # normalise stringly-typed line ("130-145" -> 130)
+        c.line = _first_int(c.line)
 
-    # resolve shortened/relative file paths back to the bundle's real absolute paths,
-    # else the verifier reads empty source and wrongly refutes (false negative).
+    # resolve shortened/relative file paths back to the bundle's real absolute paths, else the
+    # verifier reads empty source and wrongly refutes (false negative). Include the related
+    # (caller/callee) file paths too — a finding can legitimately be about an inlined callee file.
     known = list(bundle.changed_files.keys())
+    known += [qn.rsplit("::", 1)[0] for qn in bundle.related]   # related keys are "<file>::<symbol>"
     for c in candidates:
         c.file = _resolve_path(c.file, known)
 
@@ -125,14 +152,70 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     # refutation — surfacing the finding as unverified (confirmed=None) protects recall
     # (北極星「不漏」): a transient glitch must never silently hide a real finding.
     def _verify_one(c):
-        src = _premise_source(c, data_dir)
-        verdict = _parse_json(llm.complete(
-            prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
-        c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
+        try:
+            src = _premise_source(c, data_dir)
+            verdict = _parse_json(llm.complete(
+                prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
+            c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
+        except Exception as e:
+            _warn(f"verify failed for {c.title[:50]!r} ({e}) — kept as unverified")
+            c.confirmed = None   # technical failure (timeout/429/db) -> keep as unverified, never drop
         return c
     if not candidates:
         return []
-    with ThreadPoolExecutor(max_workers=len(candidates)) as ex:   # verify all findings concurrently
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(candidates))) as ex:
         verified = list(ex.map(_verify_one, candidates))          # ex.map preserves order
     # keep confirmed (True) and unverified (None); drop only explicit False
     return [c for c in verified if c.confirmed is not False]
+
+def _loc(f: Finding) -> str:
+    return f"{f.file.rsplit('/', 1)[-1]}:{f.line}"
+
+# A finding's "code symbols" = camelCase / PascalCase identifiers with an internal lower->upper
+# hump (e.g. nextBizId, IdGeneratorService, normalizePhone). These are reliable root-cause keys;
+# generic prose words, ALLCAPS (JWT), and single-cap words (Account) are intentionally excluded.
+_IDENT_RE = re.compile(r'[A-Za-z][A-Za-z0-9]{2,}')
+
+def _symbols(f: Finding) -> set:
+    text = (f.title or "") + " " + (f.rationale or "")
+    syms = {w.lower() for w in _IDENT_RE.findall(text) if re.search(r'[a-z][A-Z]', w)}
+    return syms - _GENERIC_SYMBOLS
+
+def _cluster(findings: List[Finding]) -> List[List[int]]:
+    """Union-find cluster of finding indices that share a code symbol (same root cause across
+    many files). Findings with no/unique symbols stay singletons. Fully deterministic."""
+    n = len(findings)
+    parent = list(range(n))
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    def union(a, b):
+        parent[find(a)] = find(b)
+    seen = {}
+    for i, f in enumerate(findings):
+        for sym in _symbols(f):
+            if sym in seen:
+                union(i, seen[sym])
+            else:
+                seen[sym] = i
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    return list(groups.values())
+
+def consolidate(findings: List[Finding]) -> List[Finding]:
+    """Merge same-root-cause findings (one change reported at N trigger points across files) into
+    one, listing every trigger location. DETERMINISTIC (shared-code-symbol clustering) — no LLM,
+    no run-to-run variance, and never drops: every finding lands in exactly one cluster."""
+    if len(findings) <= 1:
+        for f in findings:
+            f.locations = f.locations or [_loc(f)]
+        return findings
+    out = []
+    for idxs in _cluster(findings):
+        members = [findings[i] for i in idxs]
+        primary = max(members, key=lambda f: _SEV_ORDER.get(f.severity, 0))
+        primary.locations = sorted({_loc(f) for f in members})
+        out.append(primary)
+    return out

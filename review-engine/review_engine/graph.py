@@ -19,7 +19,12 @@ def detect_changes(repo: str, base: str, data_dir: str) -> List[ChangedFunction]
     symmetry with build()/blast_radius() and to make the caller's intent explicit."""
     out = subprocess.run([CRG, "detect-changes", "--repo", repo, "--base", base],
                          check=True, capture_output=True, text=True).stdout
-    data = json.loads(out)
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"code-review-graph detect-changes did not return JSON (base ref '{base}' may be "
+            f"invalid). Output: {out[:200]!r}") from e
     return [ChangedFunction.from_crg(d) for d in data.get("changed_functions", [])]
 
 def _db(data_dir: str) -> sqlite3.Connection:
