@@ -1,4 +1,5 @@
 import json, re, pathlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from .models import Finding, Bundle
 from . import prompt, graph
@@ -92,11 +93,14 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     # issues (concurrency, breaking changes, behaviour regressions) and several passes stabilise
     # recall against the model's run-to-run variance (北極星「不漏」). max_tokens stays generous:
     # reasoning models spend completion budget thinking before the JSON, and truncation -> 0 findings.
-    raw = []
-    for lens in lenses:
-        raw.extend(_parse_json(
+    def _find_pass(lens):
+        return _parse_json(
             llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
-        ).get("findings", []))
+        ).get("findings", [])
+    raw = []
+    with ThreadPoolExecutor(max_workers=max(1, len(lenses))) as ex:
+        for findings in ex.map(_find_pass, lenses):   # concurrent; cuts wall-clock ~Nx
+            raw.extend(findings)
     candidates = [Finding(**{k: f.get(k) for k in
                   ("severity", "file", "line", "title", "rationale", "premise")})
                   for f in raw]
@@ -120,12 +124,15 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     # (confirmed == false). A parse failure / missing verdict is a TECHNICAL miss, not a
     # refutation — surfacing the finding as unverified (confirmed=None) protects recall
     # (北極星「不漏」): a transient glitch must never silently hide a real finding.
-    kept: List[Finding] = []
-    for c in candidates:
+    def _verify_one(c):
         src = _premise_source(c, data_dir)
         verdict = _parse_json(llm.complete(
             prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
         c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
-        if c.confirmed is not False:   # keep confirmed (True) and unverified (None); drop only explicit False
-            kept.append(c)
-    return kept
+        return c
+    if not candidates:
+        return []
+    with ThreadPoolExecutor(max_workers=len(candidates)) as ex:   # verify all findings concurrently
+        verified = list(ex.map(_verify_one, candidates))          # ex.map preserves order
+    # keep confirmed (True) and unverified (None); drop only explicit False
+    return [c for c in verified if c.confirmed is not False]
