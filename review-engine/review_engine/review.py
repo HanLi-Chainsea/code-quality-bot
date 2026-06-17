@@ -1,4 +1,5 @@
 import json, re, pathlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from .models import Finding, Bundle
 from . import prompt, graph
@@ -66,17 +67,43 @@ def _premise_source(finding: Finding, data_dir: str) -> str:
                 parts.append(f"# {node.qualified_name}\n" + "\n".join(src[lo:hi]))
     return "\n\n".join(p for p in parts if p)[:VERIFY_SOURCE_MAX_CHARS]
 
-def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
-        min_severity: str = "major") -> List[Finding]:
-    llm = llm or Client.from_env()
+def _title_sig(title: str) -> str:
+    # signature = first 8 non-space chars, lowercased; merges "normalizePhone 缺驗證" vs
+    # "normalizePhone 格式缺口" (same subject) but keeps distinct subjects apart. More robust
+    # than line proximity, which splits one issue across lines and merges different issues nearby.
+    return re.sub(r"\s+", "", (title or "").lower())[:8]
 
-    # Stage 1 — find (high recall). max_tokens must be generous: M2.1 is a reasoning model,
-    # so thinking + the JSON answer share the completion budget; 2000 truncates real reviews
-    # (finish_reason=length) and the partial JSON fails to parse -> silent 0 findings.
-    found = _parse_json(llm.complete(prompt.find_prompt(bundle), max_tokens=FIND_MAX_TOKENS)).get("findings", [])
+def _dedup(cands: List[Finding]) -> List[Finding]:
+    """Merge duplicate findings about the same subject (same file + title signature) that
+    different lenses surfaced; keep the highest-severity instance."""
+    out = {}
+    for c in cands:
+        key = (c.file.rsplit("/", 1)[-1], _title_sig(c.title))
+        cur = out.get(key)
+        if cur is None or _SEV_ORDER.get(c.severity, 0) > _SEV_ORDER.get(cur.severity, 0):
+            out[key] = c
+    return list(out.values())
+
+def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
+        min_severity: str = "major", lenses: Optional[List[str]] = None) -> List[Finding]:
+    llm = llm or Client.from_env()
+    lenses = prompt.FIND_LENSES if lenses is None else lenses
+
+    # Stage 1 — multi-pass find (one pass per lens), then UNION. Diverse lenses surface deeper
+    # issues (concurrency, breaking changes, behaviour regressions) and several passes stabilise
+    # recall against the model's run-to-run variance (北極星「不漏」). max_tokens stays generous:
+    # reasoning models spend completion budget thinking before the JSON, and truncation -> 0 findings.
+    def _find_pass(lens):
+        return _parse_json(
+            llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
+        ).get("findings", [])
+    raw = []
+    with ThreadPoolExecutor(max_workers=max(1, len(lenses))) as ex:
+        for findings in ex.map(_find_pass, lenses):   # concurrent; cuts wall-clock ~Nx
+            raw.extend(findings)
     candidates = [Finding(**{k: f.get(k) for k in
                   ("severity", "file", "line", "title", "rationale", "premise")})
-                  for f in found]
+                  for f in raw]
 
     # drop malformed candidates (LLM may omit keys -> None) before we dereference them
     candidates = [c for c in candidates if c.severity and c.file and c.title]
@@ -87,6 +114,8 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     for c in candidates:
         c.file = _resolve_path(c.file, known)
 
+    candidates = _dedup(candidates)   # collapse cross-lens repeats of the same issue
+
     # severity gate (drop below threshold before paying for verify)
     floor = _SEV_ORDER.get(min_severity, 1)
     candidates = [c for c in candidates if _SEV_ORDER.get(c.severity, 0) >= floor]
@@ -95,12 +124,15 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     # (confirmed == false). A parse failure / missing verdict is a TECHNICAL miss, not a
     # refutation — surfacing the finding as unverified (confirmed=None) protects recall
     # (北極星「不漏」): a transient glitch must never silently hide a real finding.
-    kept: List[Finding] = []
-    for c in candidates:
+    def _verify_one(c):
         src = _premise_source(c, data_dir)
         verdict = _parse_json(llm.complete(
             prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
         c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
-        if c.confirmed is not False:   # keep confirmed (True) and unverified (None); drop only explicit False
-            kept.append(c)
-    return kept
+        return c
+    if not candidates:
+        return []
+    with ThreadPoolExecutor(max_workers=len(candidates)) as ex:   # verify all findings concurrently
+        verified = list(ex.map(_verify_one, candidates))          # ex.map preserves order
+    # keep confirmed (True) and unverified (None); drop only explicit False
+    return [c for c in verified if c.confirmed is not False]
