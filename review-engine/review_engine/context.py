@@ -33,8 +33,12 @@ def _excerpt(path: str, line_start: int, line_end: int, ctx: int = 2) -> str:
     return "\n".join(src[lo:hi])
 
 def build_bundle(repo: str, base: str, data_dir: str, token_budget: int = 24_000) -> Bundle:
+    _read.cache_clear()   # fresh per build — never serve stale file content across reviews
     changed = graph.detect_changes(repo, base, data_dir)
     b = Bundle(diff=_git_diff(repo, base))
+    if not changed:
+        b.notes.append("此改動沒有偵測到改動函式（可能是設定檔/二進位/文件變更，或 base 等於 HEAD）；"
+                       "僅以 diff 進行 review。")
 
     # 1) changed-file context, ADAPTIVE to changeset size:
     #    - small/medium: full files (best context; the proven default)

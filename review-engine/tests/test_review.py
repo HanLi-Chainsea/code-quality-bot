@@ -124,6 +124,19 @@ def test_consolidate_clusters_by_shared_symbol_and_never_drops():
     assert sorted(idgrp.locations) == ["A.java:10", "B.java:20"]
     assert any("normalizePhone" in f.title for f in out)  # distinct finding never dropped
 
+def test_consolidate_does_not_merge_on_generic_symbol():
+    # two DISTINCT defects that merely both mention a generic method (findOne) must NOT be merged,
+    # else one finding's description is silently dropped (北極星 不漏).
+    from review_engine.models import Finding
+    findings = [
+        Finding(severity="major", file="/r/A.java", line=1,
+                title="SQL injection via findOne", rationale="findOne built from unsanitised input", confirmed=True),
+        Finding(severity="major", file="/r/B.java", line=2,
+                title="serialization bug", rationale="findOne result mis-serialised", confirmed=True),
+    ]
+    out = review.consolidate(findings)
+    assert len(out) == 2
+
 def test_consolidate_no_shared_symbols_keeps_all():
     # distinct symbols -> no clustering -> nothing merged, nothing dropped
     from review_engine.models import Finding

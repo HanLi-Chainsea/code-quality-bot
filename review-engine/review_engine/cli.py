@@ -34,12 +34,24 @@ def main(argv=None) -> int:
         _print(_diff_only_findings(args.repo, args.base))
         return 0
 
+    import subprocess
     data_dir = args.data_dir or str(pathlib.Path(args.repo) / ".crg-data")
-    if not (pathlib.Path(data_dir) / "graph.db").exists():
-        graph.build(args.repo, data_dir)
-    else:
-        graph.update(args.repo, data_dir)
-    bundle = context.build_bundle(args.repo, args.base, data_dir)
+    try:
+        if not (pathlib.Path(data_dir) / "graph.db").exists():
+            graph.build(args.repo, data_dir)
+        else:
+            graph.update(args.repo, data_dir)
+        bundle = context.build_bundle(args.repo, args.base, data_dir)
+    except FileNotFoundError:
+        print("error: `code-review-graph` not found — is the venv active / installed?", file=sys.stderr)
+        return 2
+    except subprocess.CalledProcessError as e:
+        print(f"error: code-review-graph failed (check --repo path / --base ref).\n{e.stderr or e}",
+              file=sys.stderr)
+        return 2
+    except RuntimeError as e:                      # detect_changes non-JSON (bad base ref)
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     findings = review.run(bundle, data_dir, min_severity=args.min_severity)
     findings = review.consolidate(findings)   # merge same-root-cause findings, list trigger points
     _print(findings)

@@ -1,11 +1,22 @@
-import json, re, pathlib
+import json, re, sys, pathlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from .models import Finding, Bundle
 from . import prompt, graph
 from .llm import Client
 
+def _warn(msg: str) -> None:
+    print(f"review-engine: {msg}", file=sys.stderr)
+
 _SEV_ORDER = {"minor": 0, "major": 1, "blocker": 2}
+
+# camelCase symbols too generic to indicate a shared root cause — excluded from clustering so two
+# unrelated findings that both mention e.g. findOne()/getId() are not wrongly merged (北極星 不漏).
+_GENERIC_SYMBOLS = {
+    "tostring", "hashcode", "getid", "setid", "getname", "setname", "findone", "findall",
+    "getitems", "getlist", "getvalue", "setvalue", "getuser", "getdata", "tostring",
+    "equalsignorecase", "isblank", "isempty", "isnotblank", "getinstance", "getbean",
+}
 
 # Reasoning models spend completion budget on thinking before the JSON answer; keep headroom.
 FIND_MAX_TOKENS = 8000
@@ -86,7 +97,7 @@ def _dedup(cands: List[Finding]) -> List[Finding]:
     different lenses surfaced; keep the highest-severity instance."""
     out = {}
     for c in cands:
-        key = (c.file.rsplit("/", 1)[-1], _title_sig(c.title))
+        key = (c.file, _title_sig(c.title))   # full path: same-named files in different dirs stay distinct
         cur = out.get(key)
         if cur is None or _SEV_ORDER.get(c.severity, 0) > _SEV_ORDER.get(cur.severity, 0):
             out[key] = c
@@ -106,7 +117,8 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
             return _parse_json(
                 llm.complete(prompt.find_prompt(bundle, lens), max_tokens=FIND_MAX_TOKENS)
             ).get("findings", [])
-        except Exception:
+        except Exception as e:
+            _warn(f"find pass failed ({e}) — this lens contributed nothing")  # visible, not silent
             return []   # one lens failing (timeout/429/parse) must not lose the other passes
     raw = []
     with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, max(1, len(lenses)))) as ex:
@@ -121,9 +133,11 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     for c in candidates:                  # normalise stringly-typed line ("130-145" -> 130)
         c.line = _first_int(c.line)
 
-    # resolve shortened/relative file paths back to the bundle's real absolute paths,
-    # else the verifier reads empty source and wrongly refutes (false negative).
+    # resolve shortened/relative file paths back to the bundle's real absolute paths, else the
+    # verifier reads empty source and wrongly refutes (false negative). Include the related
+    # (caller/callee) file paths too — a finding can legitimately be about an inlined callee file.
     known = list(bundle.changed_files.keys())
+    known += [qn.rsplit("::", 1)[0] for qn in bundle.related]   # related keys are "<file>::<symbol>"
     for c in candidates:
         c.file = _resolve_path(c.file, known)
 
@@ -143,7 +157,8 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
             verdict = _parse_json(llm.complete(
                 prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
             c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
-        except Exception:
+        except Exception as e:
+            _warn(f"verify failed for {c.title[:50]!r} ({e}) — kept as unverified")
             c.confirmed = None   # technical failure (timeout/429/db) -> keep as unverified, never drop
         return c
     if not candidates:
@@ -163,7 +178,8 @@ _IDENT_RE = re.compile(r'[A-Za-z][A-Za-z0-9]{2,}')
 
 def _symbols(f: Finding) -> set:
     text = (f.title or "") + " " + (f.rationale or "")
-    return {w.lower() for w in _IDENT_RE.findall(text) if re.search(r'[a-z][A-Z]', w)}
+    syms = {w.lower() for w in _IDENT_RE.findall(text) if re.search(r'[a-z][A-Z]', w)}
+    return syms - _GENERIC_SYMBOLS
 
 def _cluster(findings: List[Finding]) -> List[List[int]]:
     """Union-find cluster of finding indices that share a code symbol (same root cause across
