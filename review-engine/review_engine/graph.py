@@ -1,8 +1,10 @@
-import json, subprocess, sys, pathlib, sqlite3
+import os, json, subprocess, sys, pathlib, sqlite3
 from typing import List
 from .models import ChangedFunction, Node
 
-CRG = str(pathlib.Path(sys.executable).parent / "code-review-graph")
+# CQB_CRG_BIN lets the binary live in an isolated venv (so its deps don't clash with the host
+# app's, e.g. PR-Agent's starlette); falls back to a code-review-graph next to this interpreter.
+CRG = os.environ.get("CQB_CRG_BIN") or str(pathlib.Path(sys.executable).parent / "code-review-graph")
 
 def build(repo: str, data_dir: str) -> None:
     subprocess.run([CRG, "build", "--repo", repo, "--data-dir", data_dir],
