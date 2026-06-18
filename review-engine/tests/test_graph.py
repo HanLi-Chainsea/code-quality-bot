@@ -21,3 +21,7 @@ def test_blast_radius_by_changed_function(fixture_repo, fixture_graph_dir):
     add = next(c for c in changed if c.name == "add")
     radius = graph.blast_radius(add.qualified_name, data_dir=str(fixture_graph_dir))
     assert any(n.name == "run" for n in radius.callers)
+
+def test_detect_changes_no_changes_returns_empty(fixture_repo, fixture_graph_dir):
+    # CRG prints "No changes detected." (non-JSON) for an empty changeset -> must be [], not a raise
+    assert graph.detect_changes(str(fixture_repo), "HEAD", str(fixture_graph_dir)) == []

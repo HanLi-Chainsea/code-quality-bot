@@ -22,6 +22,8 @@ def detect_changes(repo: str, base: str, data_dir: str) -> List[ChangedFunction]
     try:
         data = json.loads(out)
     except json.JSONDecodeError as e:
+        if "no changes" in out.lower():
+            return []          # legitimate empty changeset (CRG prints "No changes detected.")
         raise RuntimeError(
             f"code-review-graph detect-changes did not return JSON (base ref '{base}' may be "
             f"invalid). Output: {out[:200]!r}") from e

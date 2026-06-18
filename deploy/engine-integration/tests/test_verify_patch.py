@@ -28,3 +28,18 @@ def test_filter_drops_refuted_keeps_others(monkeypatch):
 
 def test_filter_is_transparent_on_parse_failure():
     assert verify_patch.filter_prediction("not: [valid", repo_dir="/x") == "not: [valid"
+
+def test_read_span_rejects_out_of_repo_path(tmp_path):
+    # a malicious relevant_file from the model YAML must not read files outside the repo dir
+    (tmp_path / "inside.txt").write_text("line1\nline2\nline3\n")
+    assert verify_patch._read_span(str(tmp_path), "inside.txt", 1, 1)            # in-repo OK
+    assert verify_patch._read_span(str(tmp_path), "../../../../etc/passwd", 1, 1) == ""
+    assert verify_patch._read_span(str(tmp_path), "/etc/passwd", 1, 1) == ""
+
+def test_per_issue_verify_error_keeps_the_finding(monkeypatch):
+    # a single verify exception (e.g. 401) must NOT drop the finding (北極星 不漏)
+    def boom(issue, repo_dir):
+        raise RuntimeError("401")
+    monkeypatch.setattr(verify_patch, "_verdict", boom)
+    out = verify_patch.filter_prediction(PREDICTION, repo_dir="/tmp/repo")
+    assert "Possible Bug" in out and "Real Bug" in out      # both kept despite verify failing
