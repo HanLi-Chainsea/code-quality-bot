@@ -58,7 +58,10 @@ def filter_prediction(prediction_yaml: str, repo_dir: str) -> str:
             _log(f"verify failed for {str(issue.get('issue_header'))[:40]!r} ({type(e).__name__}); kept")
             v = {}
         if v.get("confirmed") is False:              # ONLY an explicit refutation drops
+            _log(f"verify DROPPED {str(issue.get('issue_header'))[:50]!r}: "
+                 f"{str(v.get('reason'))[:140]}")     # observability — never a silent drop
             continue
         kept.append(issue)
+    _log(f"verify: {len(issues)} finding(s) in -> {len(kept)} kept, {len(issues) - len(kept)} dropped")
     data["review"]["key_issues_to_review"] = kept
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
