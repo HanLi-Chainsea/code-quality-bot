@@ -41,6 +41,22 @@ services:
       PYTHONPATH: "/app/cqb:/app"          # /app/cqb for cqb_patch + review_engine; /app for pr_agent
       CQB_GITLAB_TOKEN: ${CQB_GITLAB_TOKEN}
       CQB_CLONE_BASE: /cqb/repos
+      # Grounded-refutation VERIFY runs on the LOCAL MLX model on the host (reached via
+      # host.docker.internal). FIND stays on PR-Agent's own model (MiniMax via litellm).
+      # NOTE: without these REVIEWER_* vars the engine defaulted to 127.0.0.1:4000 — which inside
+      # this container is its own localhost, NOT cqb-litellm — so verify silently no-op'd. These
+      # wire it to a reachable backend for the first time.
+      REVIEWER_BASE_URL: "http://host.docker.internal:31968/v1"
+      REVIEWER_API_KEY: ${CQB_REVIEWER_API_KEY:-claw}
+      REVIEWER_MODEL: "Qwen3.5-9B-MLX-4bit"
+      # thinking stays ON (filtered out of parsing by the engine, not disabled); json_object forces
+      # valid escaped JSON. Local reasoning is slow -> generous timeout + token budget, low concurrency.
+      REVIEWER_EXTRA_BODY: '{"response_format":{"type":"json_object"}}'
+      REVIEWER_TIMEOUT: "900"
+      REVIEWER_VERIFY_MAX_TOKENS: "20000"
+      REVIEWER_MAX_WORKERS: "2"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach the host's MLX server (portable to Linux hosts)
     volumes:
       # real secrets file — created from pr_agent.gitlab.toml.example, gitignored, chmod 600
       - ./pr_agent.gitlab.toml:/app/pr_agent/settings/.secrets.toml:ro

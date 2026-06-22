@@ -1,4 +1,4 @@
-import json, re, sys, pathlib
+import os, json, re, sys, pathlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from .models import Finding, Bundle
@@ -7,6 +7,12 @@ from .llm import Client
 
 def _warn(msg: str) -> None:
     print(f"review-engine: {msg}", file=sys.stderr)
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
 
 _SEV_ORDER = {"minor": 0, "major": 1, "blocker": 2}
 
@@ -19,10 +25,12 @@ _GENERIC_SYMBOLS = {
 }
 
 # Reasoning models spend completion budget on thinking before the JSON answer; keep headroom.
-FIND_MAX_TOKENS = 8000
-VERIFY_MAX_TOKENS = 8000
+# A slow local reasoning model that thinks in-band needs a bigger budget (to reach the JSON) AND
+# lower concurrency (to not thrash memory) — all three are env-tunable without a code change.
+FIND_MAX_TOKENS = _int_env("REVIEWER_FIND_MAX_TOKENS", 8000)
+VERIFY_MAX_TOKENS = _int_env("REVIEWER_VERIFY_MAX_TOKENS", 8000)
 # Cap concurrent LLM calls so a big finding set can't flood the proxy / trip provider rate limits.
-MAX_WORKERS = 6
+MAX_WORKERS = _int_env("REVIEWER_MAX_WORKERS", 6)
 
 def _first_int(v) -> int:
     """LLMs emit `line` as int, "130", "130-145", or "130,500" — normalise to one int so the

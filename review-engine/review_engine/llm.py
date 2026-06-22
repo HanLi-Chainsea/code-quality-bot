@@ -9,6 +9,13 @@ class Client:
     timeout: int = 300        # strong reasoning models (e.g. MiniMax-M3) are slow on real prompts
     extra_body: dict = None   # backend-specific knobs merged into every request body
 
+    @staticmethod
+    def _int_env(name: str, default: int) -> int:
+        try:
+            return int(os.environ.get(name, "") or default)
+        except ValueError:
+            return default
+
     @classmethod
     def from_env(cls) -> "Client":
         # REVIEWER_EXTRA_BODY (JSON) lets a direct (non-LiteLLM) backend get extra request fields
@@ -23,6 +30,7 @@ class Client:
             base_url=os.environ.get("REVIEWER_BASE_URL", "http://127.0.0.1:4000/v1"),
             api_key=os.environ.get("REVIEWER_API_KEY", ""),
             model=os.environ.get("REVIEWER_MODEL", "reviewer"),
+            timeout=cls._int_env("REVIEWER_TIMEOUT", 300),   # raise for slow local reasoning models
             extra_body=extra,
         )
 
