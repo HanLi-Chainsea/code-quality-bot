@@ -15,8 +15,11 @@ deploy/config.yaml
 # pr-agent: LAB-only toml may get real secrets pasted in by mistake — keep it out
 pr-agent/.pr_agent.gitlab.toml
 
+# python build artifacts (anywhere in the tree, incl. deploy/engine-integration)
+__pycache__/
+*.pyc
+*.egg-info/
+
 # review-engine local
 review-engine/.venv/
-review-engine/**/__pycache__/
-review-engine/**/*.egg-info/
 var/
