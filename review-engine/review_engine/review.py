@@ -33,15 +33,72 @@ def _first_int(v) -> int:
 # completion budget (which truncates the verdict and silently loses the finding).
 VERIFY_SOURCE_MAX_CHARS = 12000
 
+def _iter_objects(s: str, start: int):
+    """Yield each top-level balanced {...} substring at/after `start`, string-aware (braces and
+    quotes inside JSON strings don't miscount). Stops at the first unterminated object so a
+    truncated tail is simply dropped rather than corrupting everything before it."""
+    i, n = start, len(s)
+    while i < n:
+        if s[i] != "{":
+            i += 1
+            continue
+        depth = 0; in_str = esc = False; j = i
+        while j < n:
+            c = s[j]
+            if in_str:
+                if esc: esc = False
+                elif c == "\\": esc = True
+                elif c == '"': in_str = False
+            elif c == '"': in_str = True
+            elif c == "{": depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    yield s[i:j + 1]; break
+            j += 1
+        else:
+            return                      # unterminated (truncated) -> stop
+        i = j + 1
+
 def _parse_json(text: str) -> dict:
-    """Tolerate models that wrap JSON in prose/fences; never raise on bad output."""
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return {}
+    """Extract JSON from a model reply that may be preceded by reasoning prose ("Thinking
+    Process: ..." / <think>...) and may be malformed or truncated. Never raises.
+
+    For a findings payload we locate the REAL answer (the last `"findings"` — anything earlier
+    is a thinking-time example) and, if the whole object won't parse (one finding has an
+    unescaped quote, or the reply was cut off at the token cap), SALVAGE the individual finding
+    objects so a single bad/partial entry can't zero out the batch (北極星「不漏」).
+    Otherwise (e.g. a verify verdict) we return the first balanced object that parses."""
+    key = text.rfind('"findings"')
+    if key != -1:
+        brace = text.rfind("{", 0, key)
+        if brace != -1:
+            for obj in _iter_objects(text, brace):     # whole findings object, if it's clean
+                try:
+                    d = json.loads(obj)
+                    if isinstance(d, dict) and "findings" in d:
+                        return d
+                except json.JSONDecodeError:
+                    pass
+                break
+        arr = text.find("[", key)                      # salvage per-finding from the array
+        if arr != -1:
+            out = []
+            for obj in _iter_objects(text, arr):
+                try:
+                    f = json.loads(obj)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(f, dict):
+                    out.append(f)
+            if out:
+                return {"findings": out}
+    for obj in _iter_objects(text, 0):                 # non-findings payload (verify verdict)
+        try:
+            return json.loads(obj)
+        except json.JSONDecodeError:
+            continue
+    return {}
 
 def _read(path: str) -> str:
     if not path:

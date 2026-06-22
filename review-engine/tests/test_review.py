@@ -152,3 +152,41 @@ def test_consolidate_single_finding_is_noop():
     f = [Finding(severity="major", file="/r/F.java", line=10, title="solo", rationale="x", confirmed=True)]
     out = review.consolidate(f)
     assert len(out) == 1 and out[0].locations == ["F.java:10"]
+
+
+# --- _parse_json robustness: reasoning models emit thinking prose + occasionally malformed/
+#     truncated JSON; one bad finding must not zero out the whole lens (北極星 不漏) ---
+
+def test_parse_json_plain_findings():
+    out = review._parse_json('{"findings":[{"title":"a"},{"title":"b"}]}')
+    assert [f["title"] for f in out["findings"]] == ["a", "b"]
+
+def test_parse_json_skips_thinking_prose_and_example():
+    # a thinking-time example object precedes the real answer; we must take the LAST one
+    txt = ('Thinking Process:\n example {"findings":[{"title":"EXAMPLE"}]} ...\n'
+           'final:\n{"findings":[{"severity":"blocker","file":"A.java","line":1,"title":"REAL"}]}')
+    out = review._parse_json(txt)
+    assert [f["title"] for f in out["findings"]] == ["REAL"]
+
+def test_parse_json_salvages_around_one_unescaped_quote():
+    # middle finding has an unescaped " inside the title -> whole-object json.loads fails;
+    # salvage must still recover the two well-formed findings, dropping only the broken one
+    bad = ('{"findings":[{"file":"A","title":"ok1"},'
+           '{"file":"B","title":"代號("X") broken"},'
+           '{"file":"C","title":"ok2"}]}')
+    titles = [f["title"] for f in review._parse_json(bad)["findings"]]
+    assert titles == ["ok1", "ok2"]
+
+def test_parse_json_salvages_truncated_tail():
+    # reply cut off at the token cap mid-last-object -> keep the complete ones
+    trunc = ('{"findings":[{"file":"A","title":"ok1"},{"file":"B","title":"ok2"},'
+             '{"file":"C","lin')
+    titles = [f["title"] for f in review._parse_json(trunc)["findings"]]
+    assert titles == ["ok1", "ok2"]
+
+def test_parse_json_verify_verdict_without_findings_key():
+    d = review._parse_json('verdict: {"confirmed": false, "reason": "throws ApiException"}')
+    assert d["confirmed"] is False and "throws" in d["reason"]
+
+def test_parse_json_junk_returns_empty():
+    assert review._parse_json("no json at all") == {}
