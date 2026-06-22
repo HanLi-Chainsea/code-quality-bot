@@ -1,8 +1,10 @@
-import json, subprocess, sys, pathlib, sqlite3
+import os, json, subprocess, sys, pathlib, sqlite3
 from typing import List
 from .models import ChangedFunction, Node
 
-CRG = str(pathlib.Path(sys.executable).parent / "code-review-graph")
+# CQB_CRG_BIN lets the binary live in an isolated venv (so its deps don't clash with the host
+# app's, e.g. PR-Agent's starlette); falls back to a code-review-graph next to this interpreter.
+CRG = os.environ.get("CQB_CRG_BIN") or str(pathlib.Path(sys.executable).parent / "code-review-graph")
 
 def build(repo: str, data_dir: str) -> None:
     subprocess.run([CRG, "build", "--repo", repo, "--data-dir", data_dir],
@@ -22,6 +24,8 @@ def detect_changes(repo: str, base: str, data_dir: str) -> List[ChangedFunction]
     try:
         data = json.loads(out)
     except json.JSONDecodeError as e:
+        if "no changes" in out.lower():
+            return []          # legitimate empty changeset (CRG prints "No changes detected.")
         raise RuntimeError(
             f"code-review-graph detect-changes did not return JSON (base ref '{base}' may be "
             f"invalid). Output: {out[:200]!r}") from e

@@ -1,0 +1,5 @@
+This image is built FROM codiumai/pr-agent (Apache-2.0). Modifications by code-quality-bot:
+- runtime monkeypatch of pr_agent.algo.pr_processing.get_pr_diff (append blast-radius context)
+- runtime monkeypatch of pr_agent.tools.pr_reviewer.PRReviewer._prepare_pr_review (grounded-
+  refutation filter on review findings)
+No PR-Agent source files are modified. See deploy/engine-integration/cqb_patch/.

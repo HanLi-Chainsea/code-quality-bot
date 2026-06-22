@@ -30,15 +30,21 @@ services:
     restart: unless-stopped
 
   pr-agent:
-    image: codiumai/pr-agent@sha256:a5741a479f21d20a9bbeca7847a720f92ac6f427e8dc0920fefa039ecafd5e6f
+    # PR-Agent + blast-radius engine patches. The image's ENTRYPOINT runs cqb_patch.bootstrap,
+    # which monkeypatches get_pr_diff (context) + PRReviewer (verify) then starts the same server.
+    # Rollback = set image back to codiumai/pr-agent@sha256:a5741a479f...e6f, re-add the
+    # `entrypoint:` line, set PYTHONPATH "/app", drop the cqb_* env + volume.
+    image: cqb-pr-agent-engine:local
     container_name: cqb-pr-agent
-    entrypoint: ["python", "-m", "pr_agent.servers.gitlab_webhook"]
     environment:
       PORT: "3000"
-      PYTHONPATH: "/app"
+      PYTHONPATH: "/app/cqb:/app"          # /app/cqb for cqb_patch + review_engine; /app for pr_agent
+      CQB_GITLAB_TOKEN: ${CQB_GITLAB_TOKEN}
+      CQB_CLONE_BASE: /cqb/repos
     volumes:
       # real secrets file — created from pr_agent.gitlab.toml.example, gitignored, chmod 600
       - ./pr_agent.gitlab.toml:/app/pr_agent/settings/.secrets.toml:ro
+      - cqb_repos:/cqb/repos               # persistent per-repo clones + graphs (engine)
     depends_on:
       litellm: { condition: service_healthy }
     ports:
@@ -47,6 +53,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     logging: { driver: "json-file", options: { max-size: "10m", max-file: "3" } }
     restart: unless-stopped
+
+volumes:
+  cqb_repos:
 
 networks:
   default:
