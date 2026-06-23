@@ -14,6 +14,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      CQB_REVIEWER_API_KEY: ${CQB_REVIEWER_API_KEY:-claw}   # local oMLX key for the reviewer-local fallback
+    extra_hosts:
+      - "host.docker.internal:host-gateway"                # reach the host's MLX server for fallback
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     ports:
