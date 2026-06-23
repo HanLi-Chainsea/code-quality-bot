@@ -9,6 +9,24 @@ from .repo_graph import _log
 _MAX_FILE_BYTES = 1_000_000   # don't slurp a huge/binary file into the prompt
 _CTX = 15                     # lines of context around the issue span
 
+# PR-Agent's models emit slightly-malformed YAML that plain yaml.safe_load chokes on; PR-Agent
+# parses it with its OWN load_yaml(keys_fix_yaml=...). We MUST parse the same way or we silently
+# fail to find key_issues_to_review and no-op. Import lazily so the unit tests (no pr_agent on the
+# path) fall back to safe_load.
+try:
+    from pr_agent.algo.utils import load_yaml as _pr_load_yaml
+except Exception:                                   # pragma: no cover - only in the live container
+    _pr_load_yaml = None
+
+_KEYS_FIX = ["ticket_compliance_check", "estimated_effort_to_review_[1-5]:", "security_concerns:",
+             "key_issues_to_review:", "relevant_file:", "relevant_line:", "suggestion:"]
+
+def _load_prediction(prediction_yaml: str) -> dict:
+    if _pr_load_yaml is not None:
+        return _pr_load_yaml(prediction_yaml.strip(), keys_fix_yaml=_KEYS_FIX,
+                             first_key="review", last_key="security_concerns")
+    return yaml.safe_load(prediction_yaml)
+
 def _safe_path(repo_dir: str, relevant_file: str):
     """Resolve relevant_file UNDER repo_dir; reject absolute paths / traversal / symlink escape so a
     malicious `relevant_file` from the model YAML can't read files outside the repo."""
@@ -45,10 +63,13 @@ def filter_prediction(prediction_yaml: str, repo_dir: str) -> str:
     """Return the review YAML with source-refuted key_issues removed; unchanged on any parse issue.
     A per-issue verify failure keeps that issue (a single 401/timeout never drops a real finding)."""
     try:
-        data = yaml.safe_load(prediction_yaml)
+        data = _load_prediction(prediction_yaml)
         issues = data["review"]["key_issues_to_review"]
         assert isinstance(issues, list)
-    except Exception:
+    except Exception as e:
+        # was silently no-op'ing: if PR-Agent's prediction can't be parsed into a findings list,
+        # SAY SO (else verify looks dead when it's just a parse miss). Keeps the review unchanged.
+        _log(f"verify: no findings list to filter ({type(e).__name__}: {str(e)[:80]}) — review kept as-is")
         return prediction_yaml
     kept = []
     for issue in issues:
