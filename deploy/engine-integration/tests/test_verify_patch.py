@@ -19,7 +19,7 @@ review:
 def test_filter_drops_refuted_keeps_others(monkeypatch):
     # verdict: first issue REFUTED (confirmed false), second has no verdict -> kept
     verdicts = iter([{"confirmed": False, "reason": "Asserts.fail throws"}, {}])
-    monkeypatch.setattr(verify_patch, "_verdict", lambda issue, repo_dir: next(verdicts))
+    monkeypatch.setattr(verify_patch, "_verdict", lambda issue, repo_dir, fdiff="": next(verdicts))
     new_pred = verify_patch.filter_prediction(PREDICTION, repo_dir="/tmp/repo")
     data = yaml.safe_load(new_pred)
     headers = [i["issue_header"] for i in data["review"]["key_issues_to_review"]]
@@ -38,7 +38,7 @@ def test_read_span_rejects_out_of_repo_path(tmp_path):
 
 def test_per_issue_verify_error_keeps_the_finding(monkeypatch):
     # a single verify exception (e.g. 401) must NOT drop the finding (北極星 不漏)
-    def boom(issue, repo_dir):
+    def boom(issue, repo_dir, fdiff=""):
         raise RuntimeError("401")
     monkeypatch.setattr(verify_patch, "_verdict", boom)
     out = verify_patch.filter_prediction(PREDICTION, repo_dir="/tmp/repo")

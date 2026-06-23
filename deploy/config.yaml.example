@@ -25,6 +25,20 @@ model_list:
     # model_info:
     #   supports_reasoning: true
 
+  # ---- OPTIONAL FALLBACK: if the primary `reviewer` is unavailable (5xx / timeout / quota),
+  #      litellm auto-retries the SAME request on this model so a cloud outage doesn't kill reviews.
+  #      A local OpenAI-compatible server is ideal here (never offline, $0). Keep its reasoning OFF
+  #      if slow — a fallback must finish, not time out. Enable by also adding the `fallbacks:` line
+  #      under litellm_settings below. Needs CQB_REVIEWER_API_KEY in .env + the litellm service
+  #      reaching the host (extra_hosts: host.docker.internal:host-gateway in docker-compose).
+  # - model_name: reviewer-local
+  #   litellm_params:
+  #     model: openai/<served-model>             # e.g. a local MLX/Ollama/vLLM model id
+  #     api_base: http://host.docker.internal:31968/v1
+  #     api_key: os.environ/CQB_REVIEWER_API_KEY
+  #     timeout: 600
+  #     extra_body: { chat_template_kwargs: { enable_thinking: false } }   # provider-specific
+
   # ---- SWAP OPTIONS: copy ONE of these over the block above to switch. ----
   # Cloud — MiniMax (code/agent model; thinking model → use the reasoning_split note above):
   # - model_name: reviewer
@@ -58,5 +72,8 @@ litellm_settings:
   drop_params: true
   max_budget: 100        # USD/month hard cap (ignored for local models = $0)
   budget_duration: 30d
+  # Uncomment to enable the reviewer-local fallback above (primary down -> retry on local):
+  # fallbacks: [{"reviewer": ["reviewer-local"]}]
+  # num_retries: 2       # transient blips retried on the primary before the fallback kicks in
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

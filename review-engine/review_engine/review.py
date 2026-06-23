@@ -1,4 +1,4 @@
-import json, re, sys, pathlib
+import os, json, re, sys, pathlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from .models import Finding, Bundle
@@ -7,6 +7,12 @@ from .llm import Client
 
 def _warn(msg: str) -> None:
     print(f"review-engine: {msg}", file=sys.stderr)
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
 
 _SEV_ORDER = {"minor": 0, "major": 1, "blocker": 2}
 
@@ -19,10 +25,12 @@ _GENERIC_SYMBOLS = {
 }
 
 # Reasoning models spend completion budget on thinking before the JSON answer; keep headroom.
-FIND_MAX_TOKENS = 8000
-VERIFY_MAX_TOKENS = 8000
+# A slow local reasoning model that thinks in-band needs a bigger budget (to reach the JSON) AND
+# lower concurrency (to not thrash memory) — all three are env-tunable without a code change.
+FIND_MAX_TOKENS = _int_env("REVIEWER_FIND_MAX_TOKENS", 8000)
+VERIFY_MAX_TOKENS = _int_env("REVIEWER_VERIFY_MAX_TOKENS", 8000)
 # Cap concurrent LLM calls so a big finding set can't flood the proxy / trip provider rate limits.
-MAX_WORKERS = 6
+MAX_WORKERS = _int_env("REVIEWER_MAX_WORKERS", 6)
 
 def _first_int(v) -> int:
     """LLMs emit `line` as int, "130", "130-145", or "130,500" — normalise to one int so the
@@ -32,16 +40,88 @@ def _first_int(v) -> int:
 # Cap the source fed to the verifier so a huge file + all callers/callees can't blow the
 # completion budget (which truncates the verdict and silently loses the finding).
 VERIFY_SOURCE_MAX_CHARS = 12000
+DIFF_MAX_CHARS = 8000               # diff fed to the verifier (to refute hallucinated removals)
+
+def file_diff(diff: str, file_path: str) -> str:
+    """Extract one file's section from a unified diff (`diff --git ... <file>` up to the next
+    `diff --git`). Lets the verifier check 'X was removed' against what THIS file actually changed.
+    Falls back to the whole diff (capped) when the file's own section can't be isolated."""
+    if not diff:
+        return ""
+    base = (file_path or "").rsplit("/", 1)[-1]
+    blocks = re.split(r"(?=^diff --git )", diff, flags=re.M)
+    for b in blocks:
+        first = b.split("\n", 1)[0]
+        if base and base in first:
+            return b[:DIFF_MAX_CHARS]
+    return diff[:DIFF_MAX_CHARS]
+
+def _iter_objects(s: str, start: int):
+    """Yield each top-level balanced {...} substring at/after `start`, string-aware (braces and
+    quotes inside JSON strings don't miscount). Stops at the first unterminated object so a
+    truncated tail is simply dropped rather than corrupting everything before it."""
+    i, n = start, len(s)
+    while i < n:
+        if s[i] != "{":
+            i += 1
+            continue
+        depth = 0; in_str = esc = False; j = i
+        while j < n:
+            c = s[j]
+            if in_str:
+                if esc: esc = False
+                elif c == "\\": esc = True
+                elif c == '"': in_str = False
+            elif c == '"': in_str = True
+            elif c == "{": depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    yield s[i:j + 1]; break
+            j += 1
+        else:
+            return                      # unterminated (truncated) -> stop
+        i = j + 1
 
 def _parse_json(text: str) -> dict:
-    """Tolerate models that wrap JSON in prose/fences; never raise on bad output."""
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return {}
+    """Extract JSON from a model reply that may be preceded by reasoning prose ("Thinking
+    Process: ..." / <think>...) and may be malformed or truncated. Never raises.
+
+    For a findings payload we locate the REAL answer (the last `"findings"` — anything earlier
+    is a thinking-time example) and, if the whole object won't parse (one finding has an
+    unescaped quote, or the reply was cut off at the token cap), SALVAGE the individual finding
+    objects so a single bad/partial entry can't zero out the batch (北極星「不漏」).
+    Otherwise (e.g. a verify verdict) we return the first balanced object that parses."""
+    key = text.rfind('"findings"')
+    if key != -1:
+        brace = text.rfind("{", 0, key)
+        if brace != -1:
+            for obj in _iter_objects(text, brace):     # whole findings object, if it's clean
+                try:
+                    d = json.loads(obj)
+                    if isinstance(d, dict) and "findings" in d:
+                        return d
+                except json.JSONDecodeError:
+                    pass
+                break
+        arr = text.find("[", key)                      # salvage per-finding from the array
+        if arr != -1:
+            out = []
+            for obj in _iter_objects(text, arr):
+                try:
+                    f = json.loads(obj)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(f, dict):
+                    out.append(f)
+            if out:
+                return {"findings": out}
+    for obj in _iter_objects(text, 0):                 # non-findings payload (verify verdict)
+        try:
+            return json.loads(obj)
+        except json.JSONDecodeError:
+            continue
+    return {}
 
 def _read(path: str) -> str:
     if not path:
@@ -154,8 +234,9 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     def _verify_one(c):
         try:
             src = _premise_source(c, data_dir)
+            fdiff = file_diff(bundle.diff, c.file)   # let the verifier refute hallucinated removals
             verdict = _parse_json(llm.complete(
-                prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
+                prompt.verify_prompt(c.title, c.premise or "", src, fdiff), max_tokens=VERIFY_MAX_TOKENS))
             c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
         except Exception as e:
             _warn(f"verify failed for {c.title[:50]!r} ({e}) — kept as unverified")

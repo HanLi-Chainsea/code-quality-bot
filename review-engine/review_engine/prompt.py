@@ -42,16 +42,24 @@ def find_prompt(b: Bundle, lens: str = "") -> str:
     head = SYSTEM_FIND if not lens else f"{SYSTEM_FIND}\n\n【本輪視角】{lens}"
     return f"{head}\n\n{_render_context(b)}"
 
-def verify_prompt(finding_title: str, premise: str, source: str) -> str:
+def verify_prompt(finding_title: str, premise: str, source: str, diff: str = "") -> str:
+    diff_block = (
+        f"\n## 這次改動的 diff（這次到底改了什麼的權威證據）\n{diff}\n"
+        "特別注意一類幻覺：若前提宣稱某東西被『移除 / 改掉 / 不再做 / 新增』，但上面的 diff "
+        "並未顯示該變更（例如宣稱『移除了某欄位/某邏輯』，diff 裡卻根本沒有它的增刪），"
+        "則前提與事實不符 → confirmed=false。注意：當前源碼裡某物『不存在』不代表它是被『這次改動』"
+        "移除的，一切以 diff 為準。\n"
+    ) if diff else ""
     return (
         "你在對一條 code review 發現做『落地反證』。用繁體中文，只輸出 JSON。\n"
         f"發現：{finding_title}\n"
         f"它依賴的前提：{premise}\n"
-        "下面是這條前提實際對應的源碼。請順著前提去讀真實源碼，判斷前提是否成立。\n"
-        "只有當源碼【明確】反證前提時（例如該情況其實已被處理、或事實根本不是它講的那樣），"
-        "才 confirmed=false。\n"
-        "若源碼支持前提、或你無法從源碼確定，一律 confirmed=true（保留，讓資深工程師判斷）。\n"
+        "下面是這條前提實際對應的源碼與這次的 diff。請順著前提去讀，判斷前提是否成立。\n"
+        "只有當【明確】反證前提時（例如該情況其實已被處理、事實根本不是它講的那樣、"
+        "或它宣稱的改動 diff 裡並不存在），才 confirmed=false。\n"
+        "若源碼/diff 支持前提、或你無法確定，一律 confirmed=true（保留，讓資深工程師判斷）。\n"
         "原則：寧可保留讓人看，也不要誤殺一個真問題（不漏 > 不吵）。\n"
+        f"{diff_block}"
         f"\n## 實際源碼\n{source}\n\n"
         "輸出：{\"confirmed\": true|false, \"reason\": \"...\"}"
     )
