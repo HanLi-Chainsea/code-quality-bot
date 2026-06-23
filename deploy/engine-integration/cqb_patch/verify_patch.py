@@ -4,7 +4,7 @@ failures / uncertainty / per-issue errors keep it (北極星 不漏)."""
 import pathlib, yaml
 from review_engine import review, prompt
 from review_engine.llm import Client
-from .repo_graph import _log
+from .repo_graph import _log, _git, _SHA_RE
 
 _MAX_FILE_BYTES = 1_000_000   # don't slurp a huge/binary file into the prompt
 _CTX = 15                     # lines of context around the issue span
@@ -50,16 +50,29 @@ def _read_span(repo_dir, relevant_file, start_line, end_line, ctx=_CTX) -> str:
     lo = max(0, int(start_line) - 1 - ctx); hi = min(len(lines), int(end_line) + ctx)
     return "\n".join(lines[lo:hi])
 
-def _verdict(issue: dict, repo_dir: str) -> dict:
+def _mr_diff(repo_dir: str, base_sha: str, head_sha: str) -> str:
+    """The MR's full diff, so the verifier can refute hallucinated 'X was removed' claims (a
+    thing's absence in current source != it was removed by THIS change). Empty on any problem
+    (SHAs validated to block argv injection); verify then runs source-only, as before."""
+    if not (_SHA_RE.fullmatch(base_sha or "") and _SHA_RE.fullmatch(head_sha or "")):
+        return ""
+    try:
+        return _git(["-C", repo_dir, "diff", f"{base_sha}..{head_sha}"], timeout=60).stdout
+    except Exception as e:
+        _log(f"verify: could not compute MR diff ({type(e).__name__}) — verifying source-only")
+        return ""
+
+def _verdict(issue: dict, repo_dir: str, fdiff: str = "") -> dict:
     src = _read_span(repo_dir, issue.get("relevant_file", ""),
                      issue.get("start_line", 1), issue.get("end_line", 1))
     if not src:
         return {}                                    # no source -> can't refute -> keep (不漏)
     title = issue.get("issue_header", ""); premise = issue.get("issue_content", "")
     return review._parse_json(Client.from_env().complete(
-        prompt.verify_prompt(title, premise, src), max_tokens=review.VERIFY_MAX_TOKENS))
+        prompt.verify_prompt(title, premise, src, fdiff), max_tokens=review.VERIFY_MAX_TOKENS))
 
-def filter_prediction(prediction_yaml: str, repo_dir: str) -> str:
+def filter_prediction(prediction_yaml: str, repo_dir: str,
+                      base_sha: str = "", head_sha: str = "") -> str:
     """Return the review YAML with source-refuted key_issues removed; unchanged on any parse issue.
     A per-issue verify failure keeps that issue (a single 401/timeout never drops a real finding)."""
     try:
@@ -71,10 +84,11 @@ def filter_prediction(prediction_yaml: str, repo_dir: str) -> str:
         # SAY SO (else verify looks dead when it's just a parse miss). Keeps the review unchanged.
         _log(f"verify: no findings list to filter ({type(e).__name__}: {str(e)[:80]}) — review kept as-is")
         return prediction_yaml
+    full_diff = _mr_diff(repo_dir, base_sha, head_sha)
     kept = []
     for issue in issues:
         try:
-            v = _verdict(issue, repo_dir)
+            v = _verdict(issue, repo_dir, review.file_diff(full_diff, issue.get("relevant_file", "")))
         except Exception as e:
             _log(f"verify failed for {str(issue.get('issue_header'))[:40]!r} ({type(e).__name__}); kept")
             v = {}

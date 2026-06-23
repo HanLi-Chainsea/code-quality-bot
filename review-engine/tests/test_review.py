@@ -190,3 +190,33 @@ def test_parse_json_verify_verdict_without_findings_key():
 
 def test_parse_json_junk_returns_empty():
     assert review._parse_json("no json at all") == {}
+
+
+# --- diff-aware verify: the verifier must see the change to refute hallucinated 'X removed' claims ---
+from review_engine import prompt
+
+_DIFF = (
+    "diff --git a/src/A.java b/src/A.java\n@@ -1,2 +1,2 @@\n-old A\n+new A\n"
+    "diff --git a/src/B.java b/src/B.java\n@@ -1,1 +1,1 @@\n-old B\n+new B\n"
+)
+
+def test_file_diff_extracts_named_file_section():
+    out = review.file_diff(_DIFF, "src/A.java")
+    assert "a/src/A.java" in out and "new A" in out
+    assert "B.java" not in out                       # only A's hunk
+
+def test_file_diff_falls_back_to_whole_when_file_absent():
+    out = review.file_diff(_DIFF, "src/Nowhere.java")
+    assert "A.java" in out and "B.java" in out       # whole diff (capped) as fallback
+
+def test_file_diff_empty_when_no_diff():
+    assert review.file_diff("", "src/A.java") == ""
+
+def test_verify_prompt_embeds_diff_and_removal_refutation_rule():
+    p = prompt.verify_prompt("t", "premise", "src code", diff="diff --git a/x b/x\n-removed line")
+    assert "removed line" in p                        # the diff reached the verifier
+    assert "diff" in p and "confirmed=false" in p     # explicit removal-refutation instruction
+
+def test_verify_prompt_no_diff_block_when_absent():
+    p = prompt.verify_prompt("t", "premise", "src code")
+    assert "權威證據" not in p                          # no diff section when none supplied

@@ -40,6 +40,21 @@ def _first_int(v) -> int:
 # Cap the source fed to the verifier so a huge file + all callers/callees can't blow the
 # completion budget (which truncates the verdict and silently loses the finding).
 VERIFY_SOURCE_MAX_CHARS = 12000
+DIFF_MAX_CHARS = 8000               # diff fed to the verifier (to refute hallucinated removals)
+
+def file_diff(diff: str, file_path: str) -> str:
+    """Extract one file's section from a unified diff (`diff --git ... <file>` up to the next
+    `diff --git`). Lets the verifier check 'X was removed' against what THIS file actually changed.
+    Falls back to the whole diff (capped) when the file's own section can't be isolated."""
+    if not diff:
+        return ""
+    base = (file_path or "").rsplit("/", 1)[-1]
+    blocks = re.split(r"(?=^diff --git )", diff, flags=re.M)
+    for b in blocks:
+        first = b.split("\n", 1)[0]
+        if base and base in first:
+            return b[:DIFF_MAX_CHARS]
+    return diff[:DIFF_MAX_CHARS]
 
 def _iter_objects(s: str, start: int):
     """Yield each top-level balanced {...} substring at/after `start`, string-aware (braces and
@@ -219,8 +234,9 @@ def run(bundle: Bundle, data_dir: str, llm: Optional[Client] = None,
     def _verify_one(c):
         try:
             src = _premise_source(c, data_dir)
+            fdiff = file_diff(bundle.diff, c.file)   # let the verifier refute hallucinated removals
             verdict = _parse_json(llm.complete(
-                prompt.verify_prompt(c.title, c.premise or "", src), max_tokens=VERIFY_MAX_TOKENS))
+                prompt.verify_prompt(c.title, c.premise or "", src, fdiff), max_tokens=VERIFY_MAX_TOKENS))
             c.confirmed = verdict["confirmed"] if "confirmed" in verdict else None
         except Exception as e:
             _warn(f"verify failed for {c.title[:50]!r} ({e}) — kept as unverified")

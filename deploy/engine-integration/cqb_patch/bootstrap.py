@@ -29,7 +29,8 @@ def _prepare_with_verify(self, *args, **kwargs):
             refs = self.git_provider.mr.diff_refs
             with repo_graph.prepared(context_patch.clone_url(self.git_provider),
                                      refs["head_sha"], context_patch.CLONE_BASE) as (repo_dir, _):
-                self.prediction = verify_patch.filter_prediction(self.prediction, repo_dir)
+                self.prediction = verify_patch.filter_prediction(
+                    self.prediction, repo_dir, refs.get("base_sha", ""), refs["head_sha"])
     except Exception as e:
         _log(f"verify skipped ({type(e).__name__}: {e})")   # best-effort; never block publishing
     return _orig_prepare(self, *args, **kwargs)
